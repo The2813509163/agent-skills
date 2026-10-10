@@ -2,12 +2,12 @@
 
 已在 OpenCode **2.0.26** 验证；通过 `opencode-setup.sh` 自动选择 v2 预构建包。v1 使用独立资产，两端复用公共逻辑，不是同一双入口自维护包；Pi 入口不在此包中。
 
-正常安装、旧散装／v1 迁移均走 [统一 setup](../README.md#安装与更新)，不手工删旧入口。`--plugins-only` 更新插件和 context-mode 自带 skills；新机器需要通用 skills、claude-mem 资产与环境配置时，运行完整 setup。
+正常安装、旧散装／v1 迁移均走 [统一 setup](../README.md#安装与更新)，不手工删旧入口。`--plugins-only` 更新插件、context-mode 自带 skills，并询问官方 claude-mem runtime／入口／MCP 更新；通用 skills 和环境配置需运行完整 setup。
 
 | 文件 | 职责 |
 | --- | --- |
 | `index.js` | 注册 v2 服务端能力，并清理注册资源；Ponytail 由官方包原生加载 |
-| `legacy-tools.js` | 复用已安装的 context-mode、claude-mem、later 实现，转换 v2 工具与会话事件 |
+| `legacy-tools.js` | 复用已安装的 context-mode、later 实现，转换 v2 工具与会话事件 |
 | `request-affinity.js` | 会话级缓存键、sticky session 请求头 |
 | `context-rewrite.js` | 近期纠错、持久外置、显式全文取回；复用 `context-rewrite/` 核心 |
 | `tui.js` | 目录包的 TUI 入口，转发到 `later-cli.js`，由 CLI 自动发现 |

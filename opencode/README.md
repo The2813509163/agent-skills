@@ -16,7 +16,7 @@ bash /tmp/opencode-setup.sh --plugins-only
 | 模式 | 执行范围 | 不执行 |
 | --- | --- | --- |
 | 默认完整安装 | 插件、依赖、配置、通用 skills；按交互选择执行 | 宿主／数据库升级 |
-| `--plugins-only` | 自维护包、context-mode 及其 skills、官方包登记、旧入口迁移 | 模型模板、Python 环境、通用 skills、claude-mem 资产安装、notify 安装、按键统一 |
+| `--plugins-only` | 自维护包、context-mode 及其 skills、官方包登记、claude-mem runtime／入口／MCP、旧入口迁移 | 模型模板、Python 环境、通用 skills、notify 安装、按键统一 |
 | `--check` | 下载校验自维护发布包，检查配置与 Magic Context，查询 Ponytail／Magic Context 版本，列出管理路径和待退役项 | 部署、更改配置／认证／数据库；也不试运行插件或检查全部依赖 |
 
 - 完整安装默认同步 base 19 个 skills；交互选择全组时为 27 个，另同步四个外部设计 skills。实体位于 `~/.agents/skills/`；context-mode 自带 skills 位于 `$CFG/skill/`。
@@ -35,7 +35,7 @@ bash /tmp/opencode-setup.sh --plugins-only
 
 - `later`：共用 Agent 工具逻辑；v1/v2 各有 TUI 适配。输入框排程与 Agent 工具排程独立，分别随 TUI／服务端进程退出清除。
 - `context_rewrite`：共用 `context-rewrite/core.mjs`、`output-store.mjs`，分别适配两代工具与消息 API；包含近期纠错、持久外置和全文取回。
-- `claude-mem`：由官方安装器维护 `$CFG/plugins/claude-mem.js`，bundle 自带 OpenCode v1 `server` 与 v2 `setup` 入口；setup 更新官方 bundle，OpenCode 负责加载。MCP／worker 仍独立配置。
+- `claude-mem`：由官方安装器维护 `$CFG/plugins/claude-mem.js`，bundle 自带 OpenCode v1 `server` 与 v2 `setup` 入口；setup 在配置合并之后调用官方安装器更新 runtime／入口／MCP，OpenCode 负责加载。安装器停止共享 worker；已有 settings 原样恢复，之后手工重启 worker。
 - v2 额外适配旧工具 API、会话事件与请求亲和性；不要求目标机编译。
 
 工具用法见 [上下文插件](../context-rewrite/README.md)，v2 文件与配置见 [v2 说明](v2/README.md)。
@@ -86,6 +86,12 @@ Magic Context 操作：
 - 除确认的 Ponytail／Magic Context 缓存刷新外，不清理 npm 插件缓存；认证、会话库与外置正文不动。**插件备份不是整机快照，也不替代数据库备份。**
 
 自维护发布包校验失败、未知宿主版本、配置无法解析、相关配置或安装路径为符号链接时停止；用户指定的缓存根可为符号链接，v2 npm cache 的 `@latest` 叶子链接仅在确认刷新对应托管缓存时整体移走。Magic Context 兼容性问题改为警告与独立刷新询问。
+
+### 临时 deprecated 迁移
+
+`claude-mem-legacy` 标记对应短期过渡，不是长期历史兼容：旧 wrapper／lib 文件备份退役；旧受管 MCP 登记交官方安装器刷新。自定义命令／环境变量／禁用项保留，告警并跳过此次 claude-mem 官方更新。安装失败恢复本次安装前的 OpenCode 配置和插件，不回滚已经更新的 runtime；官方非致命 WARN 仍需按输出处理。
+
+迁移期约一周，最终由维护者明确决定何时删除，不自动到期。退役时一并删迁移分支及过时说明，保留备份，不为旧布局继续加兼容。
 
 ## 升级、共存与回退
 

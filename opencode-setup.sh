@@ -66,14 +66,14 @@ while [ $# -gt 0 ]; do
       cat <<'HELP'
 用法: bash <本脚本> [-y|--yes] [--plugins-only|--check]
   默认             完整配置、插件、依赖与通用 skills；默认 base，交互可选全组
-  --plugins-only   同步自维护插件、官方 claude-mem runtime/宿主入口及 context-mode skills，迁移旧入口；不更新模型/Python/通用 skills
+  --plugins-only   同步自维护插件、官方 claude-mem runtime/宿主入口/MCP 及 context-mode skills，迁移旧入口；不更新模型/Python/通用 skills
   --check          下载校验自维护包、查询第三方版本、检查配置；不部署，不更改配置/认证/数据库
   -y, --yes        采用各项默认值（默认 N 仍跳过）；凭据仍可询问
 先安装 OpenCode v1/v2；更新前退出 TUI 和后台服务。精简模式需要已有 Python 3、curl。
 已知旧入口备份到 $CFG/.agent-skills-backups/；不启动宿主、不迁移数据库。
 查询 Ponytail/Magic Context 的本地版本与 npm latest；失败只警告。Ponytail 有新版默认 Y，钉版/本地路径默认 N。
 Magic Context 刷新单独询问、默认 N；确认后只备份移走对应 latest 缓存并改回官方包登记，下次启动下载。
-官方 claude-mem 安装器按宿主更新 runtime 与入口；--check 只报告、不询问刷新，仍联网，宿主 --version 可能写日志。
+官方 claude-mem 安装器更新 runtime/入口/MCP，会停止共享 worker；--check 只报告、不询问刷新，仍联网，宿主 --version 可能写日志。
 HELP
       exit 0 ;;
     *) echo "未知参数: $1(支持 -y|--yes / --plugins-only / --check / -h|--help)" >&2; exit 2 ;;
@@ -87,11 +87,10 @@ OC_VERSION="$(opencode --version)"
 if [[ "$OC_VERSION" =~ (^|[[:space:]])v?([12])\.[0-9]+\.[0-9]+ ]]; then OC_MAJOR="${BASH_REMATCH[2]}"
 else echo "ERROR: 无法识别或暂不支持的 OpenCode 版本: $OC_VERSION" >&2; exit 1; fi
 echo "客户端: $OC_VERSION → v$OC_MAJOR 插件包；不升级宿主/不迁移数据库"
-OC_RELEASE="opencode-plugins-1.0.13"
+OC_RELEASE="opencode-plugins-1.0.14"
 CFG="${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
 PLUGINS="$CFG/plugins"
 CLAUDE_PLUGIN="$PLUGINS/claude-mem.js"
-MCP_CJS="$HOME/.claude/plugins/marketplaces/thedotmack/plugin/scripts/mcp-server.cjs"
 SETTINGS="$HOME/.claude-mem/settings.json"
 MC_CFG="$HOME/.config/cortexkit/magic-context.jsonc"
 
@@ -510,63 +509,14 @@ fi
 
 # ---- 1.2 依赖: bun ----
 if ! command -v bun >/dev/null 2>&1; then
-  echo "未检测到 bun(claude-mem 的 MCP server 依赖 bun:sqlite,node 运行会崩)。"
+  echo "未检测到 bun(claude-mem runtime 与 context-mode 所需依赖)。"
   if ask "是否安装 bun？" Y; then
     curl -fsSL --connect-timeout 8 -m 60 https://bun.sh/install | bash
     export PATH="$HOME/.bun/bin:$PATH"
   else
-    echo "跳过 bun(claude-mem MCP 工具将无法运行)"
+    echo "跳过 bun；相关依赖由官方安装器检查。"
   fi
 fi
-# 只写真实存在的绝对路径;都没有时退化为裸命令名(交给运行时 PATH),别把猜测路径写进 MCP 配置
-BUN_BIN="$(command -v bun 2>/dev/null || true)"; [ -n "$BUN_BIN" ] || BUN_BIN="$HOME/.bun/bin/bun$BIN_EXT"
-[ -x "$BUN_BIN" ] || BUN_BIN=bun
-fi
-
-# ---- 2. claude-mem:官方 v1/v2 双入口插件，写入 OpenCode plugins 目录 ----
-if command -v npx >/dev/null 2>&1 && ask "更新 claude-mem 官方插件到最新版(由 OpenCode 自己加载)？" Y; then
-  # 安装阶段仅拿官方 bundle；原样恢复已有共享配置，避免 installer 改 provider 或启动 worker。
-  (
-    [ ! -L "$SETTINGS" ] || { echo "ERROR: settings 是符号链接，跳过 claude-mem 更新" >&2; exit 1; }
-    [ ! -L "$CLAUDE_PLUGIN" ] || { echo "ERROR: claude-mem 插件路径是符号链接，跳过更新" >&2; exit 1; }
-    saved="$(mktemp)"; chmod 600 "$saved"
-    mem_stage="$(mktemp -d)"
-    had_settings=0
-    if [ -f "$SETTINGS" ]; then cp -p "$SETTINGS" "$saved" || exit 1; had_settings=1; fi
-    restore_mem_settings() {
-      if [ "$had_settings" = 1 ]; then
-        cp -p "$saved" "$SETTINGS" || { echo "ERROR: 请从 $saved 恢复 $SETTINGS" >&2; exit 1; }
-      else
-        rm -f "$SETTINGS"
-      fi
-      rm -f "$saved"; rm -rf "$mem_stage"
-    }
-    trap restore_mem_settings EXIT
-    trap 'exit 130' INT
-    trap 'exit 143' TERM
-    OPENCODE_CONFIG_DIR="$(npath "$mem_stage")" npx -y claude-mem install --ide opencode --provider claude --no-auto-start < /dev/null
-    if [ -f "$mem_stage/plugins/claude-mem.js" ]; then
-      mkdir -p "$PLUGINS"
-      if [ -f "$CLAUDE_PLUGIN" ]; then
-        backup="$CFG/.agent-skills-backups/$(date +%Y%m%d%H%M%S)/claude-mem/claude-mem.js"
-        mkdir -p "$(dirname "$backup")"
-        cp -p "$CLAUDE_PLUGIN" "$backup"
-        echo "backup: $CLAUDE_PLUGIN -> $backup"
-      fi
-      cp -p "$mem_stage/plugins/claude-mem.js" "$CLAUDE_PLUGIN"
-      echo "updated: $CLAUDE_PLUGIN(官方 v1/v2 bundle)"
-    else
-      echo "ERROR: claude-mem installer 未生成 plugins/claude-mem.js" >&2
-      exit 1
-    fi
-  ) || echo "WARN: claude-mem 更新失败；请检查上方恢复提示" >&2
-elif ! command -v npx >/dev/null 2>&1; then
-  echo "WARN: 未检测到 npx，跳过 claude-mem 官方插件更新" >&2
-fi
-ensure_mem_provider "$SETTINGS"
-
-if [ ! -f "$CLAUDE_PLUGIN" ]; then
-  echo "WARN: 没有 claude-mem 官方插件，跳过 claude-mem MCP 相关配置" >&2
 fi
 
 if [ "$PLUGINS_ONLY" != 1 ]; then
@@ -748,38 +698,6 @@ else
 fi
 rm -f "$oc_tpl" "$oc_cand"
 
-# ---- 4.1 MCP 查询工具 → opencode.json ----
-if [ -f "$CLAUDE_PLUGIN" ] && [ -f "$MCP_CJS" ]; then
-  configured=0
-  for name in opencode.jsonc opencode.json; do
-    f="$CFG/$name"
-    if [ -f "$f" ] && grep -qs 'mcp-server.cjs' "$f"; then configured=1; break; fi
-  done
-  if [ "$configured" -eq 0 ] && ask "在 $CFG/opencode.json 添加 claude-mem MCP 条目?" Y; then
-    python3 - "$CFG/opencode.json" "$(nbin "$BUN_BIN")" "$(npath "$MCP_CJS")" <<'PYEOF'
-import json, sys
-path, bun, cjs = sys.argv[1], sys.argv[2], sys.argv[3]
-try:
-    with open(path) as f:
-        text = f.read()
-    cfg = json.loads(text) if text.strip() else {"$schema": "https://opencode.ai/config.json"}
-except FileNotFoundError:
-    cfg = {"$schema": "https://opencode.ai/config.json"}
-cfg.setdefault("mcp", {})
-servers = cfg["mcp"].get("servers", cfg["mcp"])
-if "claude-mem" in servers:
-    sys.exit(0)
-servers["claude-mem"] = {"type": "local", "command": [bun, cjs], **({"disabled": False} if "servers" in cfg["mcp"] else {"enabled": True})}
-with open(path, "w") as f:
-    json.dump(cfg, f, indent=2, ensure_ascii=False)
-    f.write("\n")
-print(f"added: mcp.claude-mem -> {path}")
-PYEOF
-  fi
-elif [ -f "$CLAUDE_PLUGIN" ]; then
-  echo "WARN: 未找到 claude-mem 的 mcp-server.cjs,跳过 MCP 配置" >&2
-fi
-
 # ---- 4.2 codegraph MCP(预索引代码知识图谱;CLI 提供 graph,MCP 只是入口)----
 if ! command -v codegraph >/dev/null 2>&1 && [ ! -x "$HOME/.local/bin/codegraph" ] && [ ! -x "$HOME/.local/bin/codegraph.exe" ]; then
   echo "未检测到 codegraph(代码知识图谱,MCP 需要 CLI 提供 graph)。"
@@ -890,6 +808,82 @@ echo "Ponytail 已登记官方包；已确认更新的包将在下次启动重�
 if [[ " ${plugin_args[*]} " == *" --refresh-magic-context "* ]]; then
   echo "Magic Context 已安排刷新；下次启动下载最新版并由插件处理迁移（本脚本未运行迁移）。"
 fi
+# ---- claude-mem：配置合并后由官方安装器更新 runtime、插件与 MCP ----
+if command -v npx >/dev/null 2>&1 && ask "更新 claude-mem runtime／官方插件／MCP（会停止共享 worker，之后手工重启）?" Y; then
+  (
+    for file in "$SETTINGS" "$CFG/opencode.json" "$CLAUDE_PLUGIN"; do
+      [ ! -L "$file" ] || { echo "ERROR: $file 是符号链接，跳过 claude-mem 更新" >&2; exit 1; }
+    done
+    backup="$CFG/.agent-skills-backups/$(date +%Y%m%d%H%M%S)-claude-mem"
+    mkdir -p "$backup" || exit 1
+    chmod 700 "$backup" || exit 1
+    cp -p "$CFG/opencode.json" "$backup/opencode.json" || exit 1
+    had_plugin=0
+    if [ -f "$CLAUDE_PLUGIN" ]; then
+      cp -p "$CLAUDE_PLUGIN" "$backup/claude-mem.js" || exit 1
+      had_plugin=1
+    fi
+    had_settings=0
+    if [ -f "$SETTINGS" ]; then
+      cp -p "$SETTINGS" "$backup/settings.json" || exit 1
+      had_settings=1
+    fi
+    completed=0
+    restore_mem_settings() {
+      if [ "$had_settings" = 1 ]; then
+        cp -p "$backup/settings.json" "$SETTINGS" || { echo "ERROR: 请从 $backup 恢复共享 settings" >&2; exit 1; }
+      else
+        rm -f "$SETTINGS"
+      fi
+      if [ "$completed" != 1 ]; then
+        cp -p "$backup/opencode.json" "$CFG/opencode.json" || exit 1
+        if [ "$had_plugin" = 1 ]; then cp -p "$backup/claude-mem.js" "$CLAUDE_PLUGIN" || exit 1
+        else rm -f "$CLAUDE_PLUGIN"; fi
+        echo "restored: OpenCode 配置与插件；runtime 的更新不回滚，备份在 $backup"
+      fi
+    }
+    trap restore_mem_settings EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    # 官方安装器会重写同名 MCP；先保留用户自定义或禁用的登记。
+    python3 - "$(npath "$CFG/opencode.json")" "$(npath "$HOME")" <<'PY_MEM_MIGRATE' || exit 1
+import json, re, sys
+from pathlib import Path
+path, home = Path(sys.argv[1]), sys.argv[2].replace('\\', '/').rstrip('/')
+config = json.loads(path.read_text(encoding='utf-8'))
+mcp = config.get('mcp', {})
+for servers in (mcp, mcp.get('servers', {})):
+    entry = servers.get('claude-mem')
+    if entry is None:
+        continue
+    command = entry.get('command', []) if isinstance(entry, dict) else []
+    if not isinstance(command, list):
+        sys.exit('WARN: claude-mem MCP 命令不是官方格式，保留原值并跳过安装器')
+    script = str(command[1]).replace('\\', '/') if len(command) == 2 else ''
+    managed_script = script == home + '/.claude/plugins/marketplaces/thedotmack/plugin/scripts/mcp-server.cjs'
+    managed_script |= bool(re.fullmatch(re.escape(home) + r'/\.claude/plugins/cache/thedotmack/claude-mem/[^/]+/(?:plugin/)?scripts/mcp-server\.cjs', script))
+    if (not isinstance(command, list) or len(command) != 2
+            or str(command[0]).replace('\\', '/').split('/')[-1] not in ('bun', 'bun.exe', 'node', 'node.exe')
+            or not managed_script or entry.get('type', 'local') != 'local'
+            or set(entry) - {'type', 'command', 'enabled', 'disabled'}
+            or entry.get('enabled') is False or entry.get('disabled') is True):
+        sys.exit('WARN: claude-mem MCP 有自定义或禁用配置，保留原值；跳过官方安装器，需单独处理')
+# deprecated: claude-mem-legacy；退役时删除此段旧 v2 嵌套条目迁移。
+if 'claude-mem' in mcp.get('servers', {}):
+    del mcp['servers']['claude-mem']
+    path.write_text(json.dumps(config, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    print('migrated: 旧 mcp.servers.claude-mem；由官方安装器重新登记')
+# deprecated: claude-mem-legacy 迁移段结束。
+PY_MEM_MIGRATE
+    OPENCODE_CONFIG_DIR="$(npath "$CFG")" npx -y claude-mem@latest install --ide opencode --provider claude --no-auto-start < /dev/null || exit 1
+    completed=1
+    echo "claude-mem 官方安装器已结束；共享 settings 原样恢复，备份在 $backup"
+  ) || echo "WARN: claude-mem 未完成更新，请检查上方官方安装输出；其他插件已部署" >&2
+elif ! command -v npx >/dev/null 2>&1; then
+  echo "WARN: 未检测到 npx，跳过 claude-mem 更新" >&2
+fi
+ensure_mem_provider "$SETTINGS"
+
 if [ "$PLUGINS_ONLY" = 1 ]; then
   echo "插件部署完成；Magic Context 未就绪的 WARN 仍需处理。宿主与共享数据库未由 setup 升级。"
   exit 0

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """安装对应主版本的插件产物；不启动 OpenCode、不访问会话数据库。"""
 from __future__ import annotations
+
 import json
 import os
 import re
@@ -15,6 +16,7 @@ from urllib.parse import quote, unquote, urlparse
 STAMP = datetime.now().strftime('%Y%m%d%H%M%S%f')
 MC = '@cortexkit/opencode-magic-context'
 PONYTAIL = '@dietrichgebert/ponytail'
+# deprecated: claude-mem-legacy；用户确认迁移期结束后删除这两个退役路径。
 LEGACY = ['lib/claude-mem.js', 'plugins/claude-mem-wrapper.js', 'plugins/later.js',
           'plugins/zz-context-rewrite.js', 'plugins/context-rewrite.js']
 V1_ONLY = ['plugins/zz-agent-skills.js', 'plugins/context-mode.js',

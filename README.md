@@ -433,7 +433,7 @@ Pi 原生 MCP（>= 0.99.0）：全局 `~/.pi/agent/mcp.json`，可信项目 `.pi
 | MCP | 连接方式 / 暴露 |
 |---|---|
 | mcphub-web | 远程 URL；4 个常用工具 `direct`，其余 `deferred` |
-| codegraph / claude-mem | 本地命令；`deferred`；部署时替换为本机绝对路径 |
+| codegraph | 本地命令；`deferred`；部署时替换为本机绝对路径 |
 
 - mcphub-web 直连：tavily search/extract、firecrawl scrape/search；GitHub/开发检索用 `tool_search` 发现服务器当前提供的工具
 - 工具名：Pi 以 `mcp__<服务器>__<工具>` 为基础，非字母/数字/下划线字符转下划线；超过 64 字符或归一化后重名时截短并加哈希。以当前工具表 / `tool_search` 返回名为准，不手拼、不把说明中的 `tavily_search` 等简称当调用别名；不要求跨宿主完全同名
@@ -464,7 +464,7 @@ Pi 原生 MCP（>= 0.99.0）：全局 `~/.pi/agent/mcp.json`，可信项目 `.pi
 - 模板已验证：`sidebarPanelLayout`、侧栏自定义面板、`clearSelectionOnRelease` 默认、`tmuxMouseMotion` 默认开、Enter 发送 / Shift+Enter 换行
 - 旧 `pi-zentui` / `pi-atelier` / `atelier-bridge` 从 `packages` 摘除，先存 `.bak`，避免两套 UI 同时加载
 
-### 记忆桥与版本守卫
+### 官方记忆扩展与版本守卫
 
 **claude-mem 官方扩展**
 
@@ -479,7 +479,9 @@ npx claude-mem install --ide pi --provider claude --no-auto-start
 - OpenCode 入口：`$CFG/plugins/claude-mem.js`
 - `pi-setup.sh` 与 `opencode-setup.sh` 都调用官方安装器更新 runtime 和对应宿主入口
 - agent-skills 不再复制 bundle、代理 hooks 或维护 claude-mem wrapper
-- worker、settings、MCP 查询配置仍使用共享的官方 runtime；本仓库只负责保留本机连接配置
+- Pi 默认只用官方原生 `mem_search`、`mem_timeline`、`mem_get_observations`，经 HTTP 连接共享 worker，不额外登记 claude-mem MCP
+- 官方安装器会停止共享 worker；`--no-auto-start` 只禁止自动启动。更新后手工重启 worker；已有 settings 在安装后原样恢复
+- 迁移期先备份再移除旧模板 MCP／旧 bridge；自定义 MCP 保留。需要额外 MCP 工具可自行登记
 
 **magic-context 版本守卫**
 
@@ -555,7 +557,7 @@ bash /tmp/opencode-setup.sh --plugins-only
 | 模式 | 处理范围 |
 | --- | --- |
 | 默认完整安装 | 插件、配置、依赖与通用 skills；默认 base 19 个，交互可选全组 27 个，另同步外部设计 skills |
-| `--plugins-only` | 自维护插件、context-mode 及其自带 skills、官方包登记；不更新模型／Python／通用 skills，不补装 claude-mem 资产或 notify |
+| `--plugins-only` | 自维护插件、context-mode 及其 skills、官方包登记、claude-mem runtime／入口／MCP；不更新模型／Python／通用 skills，不安装 notify |
 | `--check` | 下载校验自维护包，检查配置，查询 Ponytail／Magic Context 本地与 npm 版本；不询问、不改配置、认证或数据库 |
 
 `--check` 与 `--plugins-only` 要求已有 Python 3、curl；`--check` 仍会联网，宿主 `--version` 也可能写日志，并非零文件系统写入。
@@ -594,26 +596,16 @@ npx claude-mem install --ide opencode
 
 官方安装器生成 `$HOME/.config/opencode/plugins/claude-mem.js`。当前 bundle 自带 OpenCode v1 `server` 与 v2 `setup` 入口，由 OpenCode 自己发现和加载；agent-skills 不再代理 claude-mem，也不再维护本地 wrapper。
 
-- setup 完整维护时重新取得官方最新版 bundle，并备份旧文件
-- v1/v2 均使用同一份官方双入口文件
-- MCP 查询工具仍单独登记；worker 与 `settings.json` 仍由 claude-mem 维护
+- setup 完整安装与 `--plugins-only` 均询问运行官方最新版安装器，配置合并完成后直接更新真实配置目录；改前备份
+- v1/v2 均使用同一份官方双入口文件；MCP 登记也由官方安装器写入
+- 已有共享 settings 原样恢复；自定义／禁用的 claude-mem MCP 不接管，告警并跳过此次官方更新
 - 若插件加载失败，先检查官方 bundle 与宿主版本，不要把 claude-mem 的工具再登记到 agent-skills 入口
 
 #### ① MCP 查询工具
 
-setup 仍可单独登记 claude-mem MCP；新版官方 OpenCode bundle 也可能注册 `claude_mem_search` 工具，两者不要重复登记。`mcp-server.cjs` 依赖 `bun:sqlite`，**必须用 bun 运行**。
+官方 13.35.0 安装器为 OpenCode 登记 `mcp.claude-mem`，命令是 `[Node绝对路径, mcp-server.cjs绝对路径]`；setup 不另写命令。原生 `claude_mem_search` 是简化搜索，MCP 提供更多查询／保存能力，两者均为官方设计。
 
-```jsonc
-"mcp": {
-  "claude-mem": {
-    "type": "local",
-    "command": ["<YOUR_BUN_PATH>", "<HOME>/.claude/plugins/marketplaces/thedotmack/plugin/scripts/mcp-server.cjs"],
-    "enabled": true
-  }
-}
-```
-
-安装 bun：`curl -fsSL https://bun.sh/install | bash`。
+迁移期清理旧 `mcp.servers.claude-mem`，避免覆盖官方新登记；旧 Bun 条目交安装器更新为 Node。自定义命令、环境变量或禁用项保留并提示。旧 wrapper／lib 文件移到备份，不再运行。
 
 #### ② settings 与 worker
 
@@ -851,11 +843,6 @@ v1/v2 预构建包均已包含，不另装独立入口：
   ],
   "compaction": { "auto": false, "prune": false },
   "mcp": {
-    "claude-mem": {
-      "type": "local",
-      "command": ["<YOUR_BUN_PATH>", "<HOME>/.claude/plugins/marketplaces/thedotmack/plugin/scripts/mcp-server.cjs"],
-      "enabled": true
-    },
     "codegraph": {
       "type": "local",
       "command": ["codegraph", "serve", "--mcp"],
@@ -928,7 +915,7 @@ bash skills-external.sh   # 在克隆的套件根单独补装/更新第三方，
 | `~/.claude-mem/settings.json` | 已有 `CLAUDE_MEM_*_MODEL`、API key、Base URL、port／host 保留，缺失键按模板补齐；其他非敏感字段随模板；`CLAUDE_MEM_PROVIDER` 仍强制 `openrouter` |
 | `~/.config/cortexkit/magic-context.jsonc` | 模型及其他非敏感字段仍随模板；historian／dreamer 的 OpenCode、Pi 默认模型为 `codex-newapi/gpt-6-luna`，embedding 不变 |
 | `~/.pi/agent/{settings,models,mcp}.json` | 非敏感字段随模板，由 `pi-setup.sh` 处理；已有 `tuiMode` 保留本地选择；mcp.json 本地命令路径在合并前替换；旧共享 MCP 只读迁移，不再部署 |
-| `~/.pi/agent/agents/*.md`、`extensions/claude-mem.ts` | 整文件部署；有差异才写，原文件留时间戳备份 |
+| `~/.pi/agent/agents/*.md` | 整文件部署；有差异才写，原文件留时间戳备份 |
 
 **隐私保护边界**
 

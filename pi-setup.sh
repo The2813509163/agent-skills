@@ -10,7 +10,7 @@
 #            回车=跳过,占位符保留,之后重跑可补(三处 <YOUR_NEWAPI_API_KEY> 按 provider 名各填各的)
 #   0. 代理环境提醒(大小写都查;未设则探测直连,透明代理不拦;都不通才要求确认)
 #   1. 依赖检查(全部前置):curl/git(缺失即退出)、python3(缺则由 uv 提供自管理 3.12)、npx(缺 → 征得同意装 fnm + Node LTS)、
-#      bun(缺 → 征得同意装,claude-mem MCP server 与 context-mode 构建都需要)、uv(可选,.sdoc 校验用)
+#      bun(缺 → 征得同意装,claude-mem runtime 与 context-mode 所需依赖)、uv(可选,.sdoc 校验用)
 #   2. pi 本体与已装包更新:已装 → 默认 Y,逐包 pi update(不用 --all,它会连带升 magic-context)
 #      唯独不碰 magic-context:它与 opencode 侧共享 context.db,升级要迁移 DB、会打断正在跑的
 #      进程,所以是独立一问、默认 N(步骤 3.1),要升请放到两边都没人使用的时段
@@ -101,7 +101,6 @@ MC_SETTINGS="$HOME/.claude-mem/settings.json"
 REPO_PI_PKG="$AGENT_DIR/git/github.com/brilliantrough/agent-skills"
 MC_CFG="$HOME/.config/cortexkit/magic-context.jsonc"
 AUTH="$AGENT_DIR/auth.json"
-MCP_CJS="$HOME/.claude/plugins/marketplaces/thedotmack/plugin/scripts/mcp-server.cjs"
 OC_MC_CACHE="$HOME/.cache/opencode/packages/@cortexkit/opencode-magic-context@latest"
 
 ask() { # $1=提示 $2=默认(Y/N,缺省 N)
@@ -367,7 +366,7 @@ SELF_RAW="https://raw.githubusercontent.com/brilliantrough/agent-skills/main"
 #   模板里含 <占位符> 的值不覆盖本地已填内容;本地独有的键保留。
 #   列表键 packages/enabledModels 走并集(本地顺序 + 模板新增);其余键模板优先,数组整体替换。
 #   合并结果与本地一致时不写文件(幂等);有改动先存时间戳 .bak。
-#   mcp 模式额外替换 <HOME>/<BUN_BIN>/<CODEGRAPH_BIN>/<MCP_CJS> 为本机路径。
+#   mcp 模式额外替换 <HOME>/<BUN_BIN>/<CODEGRAPH_BIN> 为本机路径。
 #   dest 不存在则直接落模板。符号链接跳过(不穿透)。
 merge_cfg() {
   local url="$1" dest="$2" mode="${3:-}" tmp cand out
@@ -401,12 +400,12 @@ with open(p, 'w', encoding='utf-8') as f:
 PY_MINTTY_MODE
   fi
   if [ "$mode" = mcp ]; then
-    python3 - "$tmp" "$(npath "$HOME")" "$(nbin "$BUN_BIN")" "$(nbin "$CG_BIN")" "$(npath "$MCP_CJS")" <<'PYEOF'
+    python3 - "$tmp" "$(npath "$HOME")" "$(nbin "$BUN_BIN")" "$(nbin "$CG_BIN")" <<'PYEOF'
 import sys
-p, home, bun, cg, cjs = sys.argv[1:6]
+p, home, bun, cg = sys.argv[1:5]
 t = open(p, encoding='utf-8').read()
 t = (t.replace('<HOME>', home).replace('<BUN_BIN>', bun)
-      .replace('<CODEGRAPH_BIN>', cg).replace('<MCP_CJS>', cjs))
+      .replace('<CODEGRAPH_BIN>', cg))
 open(p, 'w', encoding='utf-8').write(t)
 PYEOF
   fi
@@ -627,12 +626,12 @@ if [ -x "${BUN_INSTALL:-$HOME/.bun}/bin/bun$BIN_EXT" ]; then
   export PATH="${BUN_INSTALL:-$HOME/.bun}/bin:$PATH"
 fi
 if ! command -v bun >/dev/null 2>&1; then
-  echo "未检测到 bun(claude-mem 的 MCP server 依赖 bun:sqlite,node 运行会崩)。"
+  echo "未检测到 bun(claude-mem runtime 与 context-mode 所需依赖)。"
   if ask "是否安装 bun？" Y; then
     curl -fsSL --connect-timeout 8 -m 60 https://bun.sh/install | bash
     export PATH="${BUN_INSTALL:-$HOME/.bun}/bin:$PATH"
   else
-    echo "跳过 bun(claude-mem MCP 工具将无法运行)"
+    echo "跳过 bun；相关依赖由官方安装器检查。"
   fi
 fi
 # 只写真实存在的绝对路径;都没有时退化为裸命令名(交给运行时 PATH),别把猜测路径写进 MCP 配置
@@ -1042,7 +1041,7 @@ fi
 # 官方安装器负责更新 ~/.claude/plugins/cache/... runtime 与 ~/.pi/agent/extensions/claude-mem；
 # 本仓库不再复制 bundle 或维护第二套 Pi bridge。
 mkdir -p "$HOME/.claude-mem"
-if command -v npx >/dev/null 2>&1 && ask "更新 claude-mem runtime 与 Pi 插件到最新版?" Y; then
+if command -v npx >/dev/null 2>&1 && ask "更新 claude-mem runtime 与 Pi 插件（会停止共享 worker，之后手工重启）?" Y; then
   # 安装器会写 provider；退出时原样恢复共享 settings，不启动 worker。
   (
     [ ! -L "$MC_SETTINGS" ] || { echo "ERROR: settings 是符号链接，跳过 claude-mem 更新" >&2; exit 1; }
@@ -1060,12 +1059,48 @@ if command -v npx >/dev/null 2>&1 && ask "更新 claude-mem runtime 与 Pi 插�
     trap restore_mem_settings EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
-    npx -y claude-mem install --ide pi --provider claude --no-auto-start < /dev/null
+    PI_CODING_AGENT_DIR="$(npath "$AGENT_DIR")" npx -y claude-mem@latest install --ide pi --provider claude --no-auto-start < /dev/null || exit 1
   ) || echo "WARN: claude-mem 更新失败；请检查上方恢复提示" >&2
   ensure_mem_provider "$MC_SETTINGS"
 elif ! command -v npx >/dev/null 2>&1; then
   echo "WARN: 未检测到 npx，跳过 claude-mem runtime/Pi 插件更新" >&2
 fi
+
+# deprecated: claude-mem-legacy 迁移段；用户确认退役后整段删除。
+if [ -f "$AGENT_DIR/extensions/claude-mem/index.js" ] && [ -f "$MCP_CONFIG" ] && [ ! -L "$MCP_CONFIG" ]; then
+  python3 - "$(npath "$MCP_CONFIG")" "$(npath "$HOME")" <<'PY_MEM_MIGRATE' || echo "WARN: claude-mem 旧 MCP 迁移失败，保留原配置" >&2
+import json, re, shutil, sys
+from datetime import datetime
+from pathlib import Path
+path, home = Path(sys.argv[1]), sys.argv[2].replace('\\', '/').rstrip('/')
+text = path.read_text(encoding='utf-8')
+string = r'"(?:\\.|[^"\\])*"'
+text = re.sub(f'({string})|//[^\n]*|/\\*[\\s\\S]*?\\*/', lambda m: m[1] or '', text)
+text = re.sub(f'({string})|,(\\s*[}}\\]])', lambda m: m[1] or m[2], text)
+config = json.loads(text)
+servers = config.get('mcpServers', {})
+entry = servers.get('claude-mem')
+if entry is None:
+    sys.exit(0)
+expected = home + '/.claude/plugins/marketplaces/thedotmack/plugin/scripts/mcp-server.cjs'
+args = entry.get('args', []) if isinstance(entry, dict) else []
+script = str(args[0]).replace('\\', '/') if isinstance(args, list) and len(args) == 1 else ''
+command = str(entry.get('command', '')).replace('\\', '/') if isinstance(entry, dict) else ''
+if (script not in (expected, '<MCP_CJS>')
+        or command.split('/')[-1] not in ('bun', 'bun.exe', 'node', 'node.exe', '<BUN_BIN>')
+        or set(entry) - {'command', 'args', 'exposure', 'description'}):
+    print('WARN: 保留自定义 claude-mem MCP；如不需要额外工具，可手工移除')
+    sys.exit(0)
+backup = path.with_name(path.name + '.bak-claude-mem-' + datetime.now().strftime('%Y%m%d%H%M%S%f'))
+shutil.copy2(path, backup)
+del servers['claude-mem']
+path.write_text(json.dumps(config, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+print(f'migrated: 删除旧模板 claude-mem MCP，改用官方原生 mem_* 工具；备份 {backup}')
+PY_MEM_MIGRATE
+elif [ -f "$MCP_CONFIG" ]; then
+  echo "WARN: Pi 官方 claude-mem 扩展未就绪或 MCP 配置为链接，暂不迁移旧 MCP" >&2
+fi
+# deprecated: claude-mem-legacy 迁移段结束。
 
 # ---- 6. 共用配置:claude-mem settings + magic-context.jsonc(与 opencode-setup.sh 同一套;下载失败用内嵌兜底)----
 mkdir -p "$HOME/.claude-mem"
@@ -1131,11 +1166,15 @@ EOF
   fi
 fi
 
-# ---- 6.1 claude-mem 旧 bridge/主题已迁入官方或 git 包(见步骤 3);
-#      旧版由本脚本部署到 ~/.pi/agent/{extensions, themes} 的文件会移入 backups ----
+# deprecated: claude-mem-legacy 的旧 bridge 退役；用户确认后删除该文件迁移项。
+# ---- 6.1 旧 bridge/主题已迁入官方或 git 包，散装文件移入 backups ----
 if [ "$PI_OK" -eq 1 ]; then
   if pkg_installed "git:github.com/brilliantrough/agent-skills"; then
     for legacy in "$AGENT_DIR/extensions/claude-mem.ts" "$AGENT_DIR/themes/onedark.json"; do
+      if [ "$legacy" = "$AGENT_DIR/extensions/claude-mem.ts" ] && [ ! -f "$AGENT_DIR/extensions/claude-mem/index.js" ]; then
+        echo "WARN: 官方 claude-mem 扩展未就绪，保留旧 bridge" >&2
+        continue
+      fi
       if [ -f "$legacy" ] && [ ! -L "$legacy" ]; then
         if ask "把旧版部署文件 $legacy 移入 backups(官方 claude-mem/Pi 包已接管)？" Y; then
           legacy_dest="$AGENT_DIR/backups/legacy-claude-mem-$(date +%Y%m%d%H%M%S)/$(basename "$legacy")"
