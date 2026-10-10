@@ -1084,7 +1084,7 @@ if [ "$mc_rc" = 1 ] && [ ! -f "$MC_SETTINGS" ]; then
   "CLAUDE_MEM_OPENROUTER_MODEL": "<YOUR_MODEL_NAME>",
   "CLAUDE_MEM_CONTEXT_OBSERVATIONS": "20",
   "CLAUDE_MEM_LLM_TIMEOUT_MS": "120000",
-  "CLAUDE_MEM_SKIP_TOOLS": "ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion,todowrite,skill,question,ask_user_question,list,ls,LS,list_mcp_resources,list_mcp_resource_templates,read,Read,bash,Bash,BashOutput,grep,Grep,glob,Glob,find,Find,ctx_*,mcphub-web_*,codegraph_*,claude-mem_*,claude_mem_*,mcp,mcp__*",
+  "CLAUDE_MEM_SKIP_TOOLS": "ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion,todowrite,skill,question,ask_user_question,list,ls,LS,list_mcp_resources,list_mcp_resource_templates,read,Read,bash,Bash,BashOutput,grep,Grep,glob,Glob,find,Find,ctx_*,web_*,codegraph_*,claude-mem_*,claude_mem_*,mcp,mcp__*",
   "CLAUDE_MEM_OPENROUTER_API_KEY": "<YOUR_API_KEY>"
 }
 EOF
