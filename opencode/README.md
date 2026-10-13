@@ -89,6 +89,8 @@ Magic Context 操作：
 
 ### 临时 deprecated 迁移
 
+`mcphub-web-rename`：两个 setup 共用根目录 `migrate-web-mcp.py`，在模板合并前把旧 MCP 服务名改为 `web`。OpenCode 检查 `opencode.json`／`opencode.jsonc` 的 `mcp` 与 `mcp.servers`；完整安装和 `--plugins-only` 执行，`--check` 只预览。改前相邻备份 `.bak-web-*`，连接地址、凭据、禁用状态不变。两名并存且实值冲突时保留、WARN、跳过主配置模板合并，其他插件继续。退役时删除脚本、两个调用段及对应临时检查。
+
 `claude-mem-legacy` 标记对应短期过渡，不是长期历史兼容：旧 wrapper／lib 文件备份退役；旧受管 MCP 登记交官方安装器刷新。自定义命令／环境变量／禁用项保留，告警并跳过此次 claude-mem 官方更新。安装失败恢复本次安装前的 OpenCode 配置和插件，不回滚已经更新的 runtime；官方非致命 WARN 仍需按输出处理。
 
 迁移期约一周，最终由维护者明确决定何时删除，不自动到期。退役时一并删迁移分支及过时说明，保留备份，不为旧布局继续加兼容。

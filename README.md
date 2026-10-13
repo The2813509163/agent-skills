@@ -214,7 +214,7 @@ ponytail for experiments：规模随证据收缩，完整性满足论点。
 |---|---|---|
 | magic-context embedding key | openai / 嵌入模型 / 任意分组 | `magic-context.jsonc` → `embedding.api_key` |
 | claude-mem key | openai chat completions / 任意模型 / 建议 coding openai 分组 | `~/.claude-mem/settings.json` → `CLAUDE_MEM_OPENROUTER_API_KEY` |
-| mcphub MCP host | — | Pi `~/.pi/agent/mcp.json`、OpenCode `opencode.json` → mcphub-web `url` |
+| mcphub MCP host | — | Pi `~/.pi/agent/mcp.json`、OpenCode `opencode.json` → web `url` |
 
 同一模板的三处 `<YOUR_NEWAPI_API_KEY>` 按 provider 名就近替换，不串位。
 
@@ -432,12 +432,12 @@ Pi 原生 MCP（>= 0.99.0）：全局 `~/.pi/agent/mcp.json`，可信项目 `.pi
 
 | MCP | 连接方式 / 暴露 |
 |---|---|
-| mcphub-web | 远程 URL；4 个常用工具 `direct`，其余 `deferred` |
+| web | 远程 URL；4 个常用工具 `direct`，其余 `deferred` |
 | codegraph | 本地命令；`deferred`；部署时替换为本机绝对路径 |
 
-- mcphub-web 直连：tavily search/extract、firecrawl scrape/search；GitHub/开发检索用 `tool_search` 发现服务器当前提供的工具
+- web 直连：tavily search/extract、firecrawl scrape/search；GitHub/开发检索用 `tool_search` 发现服务器当前提供的工具
 - 工具名：Pi 以 `mcp__<服务器>__<工具>` 为基础，非字母/数字/下划线字符转下划线；超过 64 字符或归一化后重名时截短并加哈希。以当前工具表 / `tool_search` 返回名为准，不手拼、不把说明中的 `tavily_search` 等简称当调用别名；不要求跨宿主完全同名
-- 示例：`tavily-mcp-tavily_search` → `mcp__mcphub_web__tavily_mcp_tavily_search`；`firecrawl-mcp-firecrawl_scrape` → `mcp__mcphub_web__firecrawl_mcp_firecrawl_scrape`
+- 示例：`tavily-mcp-tavily_search` → `mcp__web__tavily_mcp_tavily_search`；`firecrawl-mcp-firecrawl_scrape` → `mcp__web__firecrawl_mcp_firecrawl_scrape`
 - `tool_search` 发现并加载工具，`codemode` 批量调用并归约结果；`toolExposure` 的键仍写服务器原始工具名，不写 Pi 包装后的名称
 - `/mcp` 管理服务器、连接与登录；`pi mcp list` 检查连接；原生在会话启动时连接全部启用服务器，不再按首调 lazyConnect
 - 旧机器：setup 先列迁移差异，默认 N；确认后备份、导入共享配置、摘除 adapter 登记并启用原生；拒绝或失败不合并新 MCP/settings 模板
@@ -445,6 +445,12 @@ Pi 原生 MCP（>= 0.99.0）：全局 `~/.pi/agent/mcp.json`，可信项目 `.pi
 - 脚本转换 `env`/`headers` 的旧变量与转义写法；不自动迁移其它 adapter 配置来源、SSE、未知字段、URL/命令路径变量或 OAuth 登录态，遇到这些条件停止并提示
 - subagent 定义：`~/.pi/agent/agents/{explore,general}.md`，对应 OpenCode 的 explore/general
 - frontmatter **必须显式写 `tools`**：默认值引用了不存在的工具
+
+### MCP 名称的临时迁移
+
+`mcphub-web` 已改名为 `web`。两个 setup 在合并模板前执行 `mcphub-web-rename`：保留旧条目的 URL、headers、启用状态及工具配置，改前存相邻 `.bak-web-*`；OpenCode 同时覆盖 v1 `mcp` 与 v2 `mcp.servers`，`--plugins-only` 也执行，`--check` 只预览。Pi 迁移原生 `mcp.json`，不改项目级配置或旧共享源。
+
+两名并存时只合并无冲突字段、以实值补占位符；不同实值则保留原文件、WARN 并跳过对应模板合并。无旧名则不再写入。此为临时 deprecated，待维护者通知后删除，不自动到期。自定义权限或工具白名单中若写死旧名前缀，需自行更新。
 
 ### 个性化 UI
 

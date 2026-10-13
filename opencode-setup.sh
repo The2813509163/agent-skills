@@ -456,6 +456,19 @@ with tarfile.open(sys.argv[1]) as archive:
 PYEOF
 python3 "$oc_stage/deploy.py" "$oc_stage" "$(npath "$CFG")" "$OC_MAJOR" --check --versions "$(npath "$oc_stage/versions.json")"
 
+# deprecated: mcphub-web-rename；用户确认退役后删除此段及 migrate-web-mcp.py。
+web_mcp_ready=1
+if grep -qs '"mcphub-web"[[:space:]]*:' "$CFG/opencode.json" "$CFG/opencode.jsonc"; then
+  web_args=()
+  [ "$CHECK_ONLY" = 1 ] || web_args+=(--apply)
+  if ! curl -fsSL --connect-timeout 8 -m 30 -o "$oc_stage/migrate-web-mcp.py" "$SELF_RAW/migrate-web-mcp.py" \
+    || ! python3 "$oc_stage/migrate-web-mcp.py" opencode "$(npath "$CFG/opencode.json")" "$(npath "$CFG/opencode.jsonc")" "${web_args[@]}"; then
+    web_mcp_ready=0
+    echo "WARN: web MCP 改名未完成，跳过主配置模板合并；其他插件继续部署" >&2
+  fi
+fi
+# deprecated: mcphub-web-rename 结束。
+
 if [ "$CHECK_ONLY" = 1 ]; then exit 0; fi
 
 # ---- 第三方 npm 插件：询问后刷新；不启动宿主、不修改共享数据库 ----
@@ -590,7 +603,7 @@ if [ -f "$CFG/opencode.json" ] && [ -n "$GW_BASE$K_CLAUDE$K_CODEX$K_ANTHROPIC$K_
   fill_template_placeholders "$CFG/opencode.json"
   echo "filled placeholders: $CFG/opencode.json"
 fi
-if curl -fsSL --connect-timeout 8 -m 30 -o "$oc_tpl" "$RAW/opencode/opencode.json"; then
+if [ "$web_mcp_ready" = 1 ] && curl -fsSL --connect-timeout 8 -m 30 -o "$oc_tpl" "$RAW/opencode/opencode.json"; then
   fill_template_placeholders "$oc_tpl"
   oc_out="$(python3 - "$CFG/opencode.json" "$CFG/opencode.jsonc" "$oc_tpl" "$oc_cand" <<'PYEOF'
 import json, re, os, sys
@@ -694,7 +707,7 @@ PYEOF
                fi ;;
   esac
 else
-  echo "跳过: opencode.json 模板下载失败(检查代理),现有配置未改动"
+  echo "跳过: opencode.json 模板下载或 web MCP 迁移未完成，保留现有配置"
 fi
 rm -f "$oc_tpl" "$oc_cand"
 

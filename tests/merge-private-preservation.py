@@ -169,7 +169,52 @@ def check_fill(script, body, tmp):
     return fails
 
 
+# deprecated: mcphub-web-rename；随迁移脚本退役删除。
+def check_web_migration():
+    entry = {"url": "https://private.example/mcp/web", "headers": {"Authorization": "sentinel"},
+             "enabled": False, "toolExposure": {"search": "deferred"}}
+    for host, keys in (("pi", ["mcpServers"]), ("opencode", ["mcp"]), ("opencode", ["mcp", "servers"])):
+        with tempfile.TemporaryDirectory() as d:
+            path = pathlib.Path(d) / "config.jsonc"
+            config: dict = {"unrelated": {"keep": True}}
+            group = config
+            for key in keys:
+                group = group.setdefault(key, {})
+            group.update({"mcphub-web": entry, "web": {"url": "https://<YOUR_MCPHUB_HOST>/mcp/web"}})
+            path.write_text("// JSONC\n" + json.dumps(config), encoding="utf-8")
+            before = path.read_bytes()
+            cmd = [sys.executable, str(ROOT / "migrate-web-mcp.py"), host, str(path)]
+            subprocess.run(cmd, check=True, capture_output=True)
+            assert path.read_bytes() == before and not list(path.parent.glob("*.bak-*"))
+            subprocess.run(cmd + ["--apply"], check=True, capture_output=True)
+            migrated = json.loads(path.read_text())
+            servers = migrated
+            for key in keys:
+                servers = servers[key]
+            assert servers == {"web": entry} and migrated["unrelated"] == config["unrelated"]
+            assert next(path.parent.glob("*.bak-web-*")).read_bytes() == before
+            first = path.read_bytes()
+            subprocess.run(cmd + ["--apply"], check=True, capture_output=True)
+            assert path.read_bytes() == first and len(list(path.parent.glob("*.bak-web-*"))) == 1
+            group["web"]["url"] = "https://different.example/mcp/web"
+            path.write_text(json.dumps(config), encoding="utf-8")
+            before = path.read_bytes()
+            result = subprocess.run(cmd + ["--apply"], capture_output=True)
+            assert result.returncode != 0 and path.read_bytes() == before
+    match = SCRIPT.search((ROOT / "pi-setup.sh").read_text())
+    assert match is not None
+    body = match.group(1)
+    with tempfile.TemporaryDirectory() as d:
+        dest, tpl, cand = [pathlib.Path(d) / name for name in ("dest.json", "tpl.json", "cand.json")]
+        dest.write_text(json.dumps({"mcpServers": {"web": entry}}))
+        tpl.write_text(json.dumps({"mcpServers": {"web": {"exposure": "direct", "toolExposure": {"search": "direct"}}, "codegraph": {"command": "codegraph"}}}))
+        subprocess.run([sys.executable, "-", str(dest), str(tpl), str(cand)], input=body, text=True, check=True, capture_output=True)
+        assert json.loads(cand.read_text())["mcpServers"]["web"] == entry
+    print("web MCP: Pi / OpenCode v1/v2，预览、备份、凭据/禁用/工具保留、幂等、冲突保留通过")
+
+
 def main():
+    check_web_migration()
     failures = []
     for script, body, fill in engines():
         with tempfile.TemporaryDirectory() as d:

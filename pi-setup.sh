@@ -477,6 +477,10 @@ def merge(cur, new):
         out[k] = merge(cur.get(k), v) if isinstance(v, dict) else v
     return out
 
+# deprecated: mcphub-web-rename；迁移期保留既有 web 的完整连接和工具配置。
+if isinstance(cur.get("mcpServers", {}).get("web"), dict) and "mcpServers" in new:
+    new["mcpServers"]["web"] = cur["mcpServers"]["web"]
+# deprecated: mcphub-web-rename 结束。
 merged = merge(cur, new)
 if merged == cur:
     print("unchanged")
@@ -987,6 +991,17 @@ PY_MCP_NEEDED
   merge_cfg "$RAW/pi/models.json" "$MODELS" || true
   CG_BIN="$(command -v codegraph 2>/dev/null || true)"; [ -n "$CG_BIN" ] || CG_BIN="$HOME/.local/bin/codegraph$BIN_EXT"
   [ -x "$CG_BIN" ] || CG_BIN=codegraph
+  # deprecated: mcphub-web-rename；用户确认退役后删除此段及 migrate-web-mcp.py。
+  if [ "$mcp_ready" = 1 ] && grep -qs '"mcphub-web"[[:space:]]*:' "$MCP_CONFIG"; then
+    web_migrate="$(mktemp)"
+    if ! curl -fsSL --connect-timeout 8 -m 30 -o "$web_migrate" "$SELF_RAW/migrate-web-mcp.py" \
+      || ! python3 "$web_migrate" pi "$(npath "$MCP_CONFIG")" --apply; then
+      mcp_ready=0
+      echo "WARN: web MCP 改名未完成，跳过 MCP 模板合并；其他配置继续部署" >&2
+    fi
+    rm -f "$web_migrate"
+  fi
+  # deprecated: mcphub-web-rename 结束。
   if [ "$mcp_ready" = 1 ]; then
     merge_cfg "$RAW/pi/mcp.json" "$MCP_CONFIG" mcp || true
     [ ! -f "$MCP_CONFIG" ] || chmod 600 "$MCP_CONFIG"
