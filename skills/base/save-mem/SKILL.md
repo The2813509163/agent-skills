@@ -1,6 +1,6 @@
 ---
 name: save-mem
-description: Preserve useful project knowledge through StrictDoc, Magic Context, and available memory tools, including overlapping storage where useful. Maintain readable current norms in StrictDoc; update them when a genuine decision change is clear and briefly inform the user, without routinely churning the canon. Ordinary memories and explanatory docs can evolve more freely. Favor concise phrases, lists, tables, and occasional PS explanations; choose storage, detail, and timing with judgment.
+description: Preserve useful project knowledge at milestones, after a resolved failure or settled decision, and before ending work. Use StrictDoc, Magic Context, and claude-mem together; when a claude-mem write tool is available, explicitly save important decisions, corrections, and handoff facts rather than assuming automatic capture succeeded. Keep current norms distinguishable from history, allow useful overlap, and choose storage, detail, and timing with judgment.
 ---
 
 # Save Memory
@@ -17,13 +17,21 @@ Leave memory that helps both the next Agent and the human reader understand **wh
 | Magic Context `ctx_memory` | Persistent facts, rules, decisions, lessons, and context available across sessions |
 | Magic Context `ctx_search` / `ctx_expand` | Find existing knowledge and recover the discussion behind it |
 | Magic Context `ctx_note` | Reminders and follow-ups for later |
-| claude-mem | Captured activity and searchable observations, where installed and capturing |
+| claude-mem | Searchable cross-session observations; explicit durable notes when a write tool is available |
 
 - Storing the same knowledge in StrictDoc and Magic Context is reasonable and often useful. Database entries can contain substantive knowledge, not just document pointers.
 - Choose the amount of overlap and detail that helps future work. There is no requirement for every memory to have a document counterpart, or for every document to be mirrored in a database.
 - Existing memories and relevant source files help avoid accidental duplicates and stale claims. `ctx_memory` supports writing, updating, merging, and archiving; use the operation that fits. Paths and UIDs are useful cross-references, not prerequisites for saving.
 - Missing tools need not stop the other stores from being useful. Be clear about any important knowledge that remains unsaved or unverified.
 - A project's **vocabulary and domain model** are memory too: `domain-modeling` is the skill for changing them (challenging terms, glossary entries, hard-to-reverse decisions). Land its output in this project's own layers — the glossary in StrictDoc's handbook (or a `CONTEXT.md` where the project already uses one), hard-to-reverse decisions as `project_memory/decisions.sdoc` nodes rather than a second parallel decision tree.
+
+## Preserve key outcomes in claude-mem
+
+- Automatic capture can preserve work history, but tool availability or a successful host turn does not prove a key conclusion was stored. When a claude-mem write tool is available, explicitly save important decisions, corrections, resolved failures, and handoff facts; inspect the result before claiming persistence.
+- Search relevant existing observations before adding a note, reusing evidence already retrieved. Keep useful conclusions and their scope, not full transcripts or secrets; useful overlap with StrictDoc and Magic Context is welcome, not a mandatory mirror of every entry.
+- Tool identity follows the integration: Pi's native `mem_search` / `mem_timeline` / `mem_get_observations` and OpenCode's `claude_mem_search` are **claude-mem recall tools**, not write tools. See `load-mem` for the host-specific naming and parameter differences.
+- With claude-mem MCP, `save_memory` (`text`, optional `title`/`project`) saves a local-worker note. In OpenCode v2 Code Mode, for server key `claude-mem`, that is `tools["claude-mem"].save_memory(...)`; direct exposure can be `claude-mem_save_memory`. An additionally configured Pi MCP can expose `mcp__claude_mem__save_memory`. Use the actual catalog, not a guessed name.
+- In server runtime, use `observation_add` only when exposed for the intended server/project; `save_memory` does not write server notes. Native Pi alone has no explicit write tool in the verified 13.39.0 interface (2026-10-14): continue with available stores, without inventing `mem_save` or installing extra integrations just to finish a save.
 
 ## Keep current truth distinguishable from history
 
