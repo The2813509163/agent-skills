@@ -304,7 +304,7 @@ collect_gateway_values() {
   [ -z "$K_CODEX" ]     && ask_value "codex-newapi 的 API key(openai responses 协议 · gpt 模型 · 网关 codex 分组)" K_CODEX 1
   [ -z "$K_ANTHROPIC" ] && ask_value "anthropic-newapi 的 API key(anthropic 协议 · 国产模型 · 网关 coding anthropic 分组)" K_ANTHROPIC 1
   [ -z "$K_EMBED" ]     && ask_value "magic-context embedding 的 API key(openai 协议 · 嵌入模型 · 任意分组)" K_EMBED 1
-  [ -z "$K_MEM" ]       && ask_value "claude-mem 的 API key(openai chat completions 协议 · 任意模型 · 建议 coding openai 分组)" K_MEM 1
+  [ -z "$K_MEM" ]       && ask_value "claude-mem 的 API key(openai chat completions · mem-1 · coding openai / coding anthropic / codex / default 分组均可)" K_MEM 1
   [ -z "$MCPHUB_HOST" ] && ask_value "mcphub MCP host(如 mcp.example.com)" MCPHUB_HOST
   local m=""
   for kv in "claude:$K_CLAUDE" "codex:$K_CODEX" "anthropic:$K_ANTHROPIC" "embedding:$K_EMBED" "claude-mem:$K_MEM"; do
@@ -465,8 +465,8 @@ def merge(cur, new):
         return new
     out = dict(cur)
     for k, v in new.items():
-        if k in cur and k.startswith('CLAUDE_MEM_') and k.endswith(('_MODEL', '_BASE_URL', '_API_KEY', '_PORT', '_HOST')):
-            continue  # 已有模型/接口/凭据保留，包括占位值
+        if k in cur and k.startswith('CLAUDE_MEM_') and k.endswith(('_BASE_URL', '_API_KEY', '_PORT', '_HOST')):
+            continue  # 已有接口/凭据保留；模型名随模板
         if k in cur and SENSITIVE.search(k):                       # 敏感键:本地值优先
             continue
         if k in cur and isinstance(v, str) and PLACEHOLDER.search(v):  # 占位值不覆盖已填内容
@@ -818,6 +818,8 @@ PYEOF
   pi_install npm:pi-subagents-j0k3r
   pi_install npm:pi-lens
   pi_install npm:@juicesharp/rpiv-ask-user-question
+  # 2.6.10 实测：11 个工具的模型可见 JSON 约 15.1k 字符、约 3.8k token；钉版，避免 latest 漂移。
+  pi_install npm:pi-background-tasks@2.6.10
   # 0.6.8 上游将配置路径硬编码到 ~/.pi/agent,自定义 agent dir 暂不部署此插件。
   if [ "$AGENT_DIR" = "$HOME/.pi/agent" ]; then
     pi_install npm:pi-autoname@0.6.8
@@ -1131,7 +1133,7 @@ if [ "$mc_rc" = 1 ] && [ ! -f "$MC_SETTINGS" ]; then
   "CLAUDE_MEM_RUNTIME": "worker",
   "CLAUDE_MEM_PROVIDER": "openrouter",
   "CLAUDE_MEM_OPENROUTER_BASE_URL": "<YOUR_NEWAPI_BASE_URL>",
-  "CLAUDE_MEM_OPENROUTER_MODEL": "<YOUR_MODEL_NAME>",
+  "CLAUDE_MEM_OPENROUTER_MODEL": "mem-1",
   "CLAUDE_MEM_CONTEXT_OBSERVATIONS": "20",
   "CLAUDE_MEM_LLM_TIMEOUT_MS": "120000",
   "CLAUDE_MEM_SKIP_TOOLS": "ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion,todowrite,skill,question,ask_user_question,list,ls,LS,list_mcp_resources,list_mcp_resource_templates,read,Read,bash,Bash,BashOutput,grep,Grep,glob,Glob,find,Find,ctx_*,web_*,codegraph_*,claude-mem_*,claude_mem_*,mcp,mcp__*",

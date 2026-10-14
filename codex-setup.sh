@@ -184,7 +184,7 @@ collect_gateway_values() {
     echo "未提供网关地址:占位符保留,装完手工填"
     return 0
   fi
-  [ -z "$K_MEM" ] && ask_value "claude-mem 的 API key(openai chat completions 协议 · 任意模型 · 建议 coding openai 分组)" K_MEM 1
+  [ -z "$K_MEM" ] && ask_value "claude-mem 的 API key(openai chat completions · mem-1 · coding openai / coding anthropic / codex / default 分组均可)" K_MEM 1
   if [ -n "$K_MEM" ]; then echo "凭据:网关 $GW_BASE;claude-mem key:已填"
   else echo "凭据:网关 $GW_BASE;claude-mem key:留空(占位符保留)"; fi
   return 0
@@ -300,8 +300,8 @@ def merge(cur, new):
         return new
     out = dict(cur)
     for k, v in new.items():
-        if k in cur and k.startswith('CLAUDE_MEM_') and k.endswith(('_MODEL', '_BASE_URL', '_API_KEY', '_PORT', '_HOST')):
-            continue  # 已有模型/接口/凭据保留，包括占位值
+        if k in cur and k.startswith('CLAUDE_MEM_') and k.endswith(('_BASE_URL', '_API_KEY', '_PORT', '_HOST')):
+            continue  # 已有接口/凭据保留；模型名随模板
         if k in cur and SENSITIVE.search(k):                       # 敏感键:本地值优先
             continue
         if k in cur and isinstance(v, str) and PLACEHOLDER.search(v):  # 占位值不覆盖已填内容
@@ -547,7 +547,7 @@ else
   "CLAUDE_MEM_RUNTIME": "worker",
   "CLAUDE_MEM_PROVIDER": "openrouter",
   "CLAUDE_MEM_OPENROUTER_BASE_URL": "<YOUR_NEWAPI_BASE_URL>",
-  "CLAUDE_MEM_OPENROUTER_MODEL": "<YOUR_MODEL_NAME>",
+  "CLAUDE_MEM_OPENROUTER_MODEL": "mem-1",
   "CLAUDE_MEM_OPENROUTER_API_KEY": "<YOUR_API_KEY>",
   "CLAUDE_MEM_CONTEXT_OBSERVATIONS": "20",
   "CLAUDE_MEM_LLM_TIMEOUT_MS": "120000"

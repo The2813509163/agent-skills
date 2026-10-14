@@ -414,6 +414,7 @@ skills 重跑套件同步器即可；共享目录的更新也影响 OpenCode。c
 | `@dietrichgebert/ponytail` | 官方自带 pi-extension |
 | `pi-subagents-j0k3r` | subagent |
 | `pi-lens` | 实时诊断、符号检索 |
+| `pi-background-tasks@2.6.10` | 后台 shell、只读委派、Fusion；完成通知唤醒会话 |
 | `@juicesharp/rpiv-ask-user-question` | `ask_user_question` 结构化提问；Pi 核心没有，plan-brief/grilling 需要 |
 | `@cortexkit/pi-magic-context` | Magic Context |
 | `pi-autoname@0.6.8` | 自动命名 |
@@ -538,7 +539,7 @@ OpenCode setup 单独询问是否刷新 Magic Context，默认 N；v2 兼容基�
 
 不用脚本时：
 
-1. 对照[插件清单](#插件与主题)，用 `pi install npm:<包名>` 逐个安装七个 npm 包，再用 `pi install git:github.com/brilliantrough/agent-skills` 安装本仓库包
+1. 对照[插件清单](#插件与主题)，用 `pi install npm:<包名>` 逐个安装八个 npm 包，再用 `pi install git:github.com/brilliantrough/agent-skills` 安装本仓库包
 2. 可选安装 context-mode fork：
    - Pi：`curl -fsSL https://github.com/brilliantrough/agent-skills/releases/latest/download/pi-context-mode-vendor.tar.gz | tar -xz -C ~/.pi/agent/vendor/context-mode`，再 `pi install ~/.pi/agent/vendor/context-mode`
    - OpenCode v1：取 `opencode-context-mode-vendor.tar.gz` 解到 `~/.config/opencode/plugins/context-mode`，将包内 `entry.js` 用 `cp` 复制到 `plugins/context-mode.js`
@@ -918,7 +919,7 @@ bash skills-external.sh   # 在克隆的套件根单独补装/更新第三方，
 | 文件 | 更新策略 / 特例 |
 |---|---|
 | `~/.config/opencode/opencode.json` | 完整 setup 刷新 v1 `provider.models`，保留 `options`；v2 原生 `providers` 不套旧模板。插件模式只规范套件登记、保留其他字段；路径遵循 `OPENCODE_CONFIG_DIR`／XDG |
-| `~/.claude-mem/settings.json` | 已有 `CLAUDE_MEM_*_MODEL`、API key、Base URL、port／host 保留，缺失键按模板补齐；其他非敏感字段随模板；`CLAUDE_MEM_PROVIDER` 仍强制 `openrouter` |
+| `~/.claude-mem/settings.json` | `CLAUDE_MEM_*_MODEL` 随模板统一为 `mem-1`；API key、Base URL、port／host 保留，缺失键按模板补齐；`CLAUDE_MEM_PROVIDER` 仍强制 `openrouter` |
 | `~/.config/cortexkit/magic-context.jsonc` | 模型及其他非敏感字段仍随模板；historian／dreamer 的 OpenCode、Pi 默认模型为 `codex-newapi/gpt-6-luna`，embedding 不变 |
 | `~/.pi/agent/{settings,models,mcp}.json` | 非敏感字段随模板，由 `pi-setup.sh` 处理；已有 `tuiMode` 保留本地选择；mcp.json 本地命令路径在合并前替换；旧共享 MCP 只读迁移，不再部署 |
 | `~/.pi/agent/agents/*.md` | 整文件部署；有差异才写，原文件留时间戳备份 |
@@ -928,7 +929,7 @@ bash skills-external.sh   # 在克隆的套件根单独补装/更新第三方，
 - 键名命中 `SENSITIVE`，或模板值为 `<占位符>`：机器上已有值永不覆盖
 - `SENSITIVE`：`api[_-]?key` / `secret` / `token` / `password` / `credential` / `bearer` / `auth` / `cookie` / `ingest` / `webhook` / `base[_-]?url` / `url` / `endpoint` / `host` / 以 `key` 结尾
 - OpenCode 配置的本地值优先；插件登记按主版本规范化、退役旧入口，provider 模型按上表单独更新
-- 模型字段中，已有 `CLAUDE_MEM_*_MODEL` 明确保留；Magic Context 的 model、v1 `provider.models` 仍随完整 setup 更新。v2 原生 `providers` 与插件精简模式除外；`-y` 不会绕过保留规则
+- 模型字段中，`CLAUDE_MEM_*_MODEL` 随模板统一为 `mem-1`；API key、Base URL、port／host 保留。Magic Context 的 model 仍由脚本接管但本轮不改值。
 - 整文件覆盖的 `agent-skills-ui.json` / `agent-skills-editor.json` / `keybindings.json` 不含隐私内容
 
 回归检查：`python3 tests/merge-private-preservation.py`；selfcheck 也会运行。

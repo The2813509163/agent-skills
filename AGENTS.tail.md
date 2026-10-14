@@ -25,9 +25,16 @@ This project uses a three-layer memory system (Magic Context + StrictDoc + claud
 - Magic Context supports recall and durable storage: `ctx_search` can recover earlier decisions before asking the user, `ctx_memory` can preserve useful knowledge, and `ctx_note` can hold reminders. Use alongside StrictDoc and claude-mem, with useful overlap.
 - Reuse loaded skills, confirmed facts and current source while they remain available and unchanged. Recover only missing or stale context; after an exact-match edit fails, reread the affected unit rather than guessing another patch. `intent` is an optional retrieval query, not a task note; omit it when code already prints the answer.
 
+### Long-running work (always applies)
+
+- Pi: unknown completion time → `pi-background-tasks` (`bg_run` for shell, `bg_delegate` for read-only investigation, Fusion only for an explicit multi-model review). Known duration plus a custom next-step prompt → `later`. OpenCode v2: native `shell`/`subagent` with `background: true`, or `Ctrl+B`; it has no custom wake prompt, so use `later` when the resumed turn needs instructions.
+- Launch, then end the turn. Do not sleep, poll, or block on completion. A wake-up is not proof of success: read the result, logs, or exit state before continuing.
+- Background shell is not sandboxed. Keep `bg_delegate` isolated unless an extension-registered provider requires `ambient`.
+
 ### Steering the agent (always applies)
 
 - Steer with prompts, skills and tool descriptions — never with hard blocks. Guidance keeps judgement and variety; deny rules are a last resort for damage, not for preference.
+- `quick-do`, `steady-do`, and `plan-brief` are user-selected modes. If none is named, load one: `steady-do` for most work, `quick-do` for a small bounded change, `plan-brief` only for a large project or major change.
 - Adding an MCP server: use descriptive server/tool names and rich descriptions. Pi native MCP keeps its namespace prefix; use `exposure` / `toolExposure` for direct versus discoverable tools, not adapter-only `toolPrefix` / `directTools`.
 - When a behaviour goes wrong, fix the system that produced it (a line here, a skill, or a fork patch), not just the config of the machine you noticed it on.
 

@@ -49,6 +49,7 @@ Long runs (device hours) must not hold the turn and must not be polled in a loop
 - **End the turn** after scheduling — the `later` call is the LAST action of the turn: no idling, no spinning, no token-burning polls while waiting. The scheduled prompt arrives as a user message and resumes the session with no human present. Chain wake-ups across runs: each wake-up checks, decides, launches the next run, schedules the next `later`.
 - **A timer is an estimate, not a completion signal.** On wake-up, verify the run actually finished and succeeded before recording metrics. If it is still running, re-estimate the remainder from observed progress (log/epoch counters, current throughput — contention can stretch a planned 5h run to 7h), never from the original plan, and schedule another `later` for that remainder plus margin. Repeat until the run actually finishes; there is no wake-up budget.
 - If the host has no `later` tool, degrade: tell the researcher the expected duration and when to return, or follow the project's own waiting convention.
+- A background-task completion wake is not a substitute here: training and batch jobs need the custom next-step prompt and duration margin that `later` carries. Use background tasks for completion-driven shell or read-only investigation, not for these scheduled experiment chains.
 
 ## 6. Land the metrics where figures can use them
 
