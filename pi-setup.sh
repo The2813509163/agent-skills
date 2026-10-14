@@ -422,7 +422,7 @@ PYEOF
   fi
   cand="$(mktemp)"
   out="$(python3 - "$dest" "$tmp" "$cand" <<'PYEOF'
-import json, re, sys
+import json, os, re, sys
 dest, tpl = sys.argv[1], sys.argv[2]
 SENSITIVE = re.compile(r'(api[_-]?key|secret|token|password|passwd|credential|bearer|auth|cookie|ingest|webhook|base[_-]?url|url|endpoint|host|(^|[._-])key$)', re.I)
 PLACEHOLDER = re.compile(r'<[A-Za-z][A-Za-z0-9 _-]*>')
@@ -482,13 +482,18 @@ if isinstance(cur.get("mcpServers", {}).get("web"), dict) and "mcpServers" in ne
     new["mcpServers"]["web"] = cur["mcpServers"]["web"]
 # deprecated: mcphub-web-rename 结束。
 merged = merge(cur, new)
+# deprecated: memory-config-049；用户确认退役后删除此清理段。
+if os.path.basename(dest) == "magic-context.jsonc":
+    for key in ("clear_reasoning_age", "smart_drops", "sidekick"):
+        merged.pop(key, None)
+# deprecated: memory-config-049 结束。
 if merged == cur:
     print("unchanged")
 else:
     with open(sys.argv[3], 'w', encoding='utf-8') as f:
         json.dump(merged, f, indent=2, ensure_ascii=False)
         f.write("\n")
-    top = [k for k in merged if cur.get(k) != merged.get(k)]
+    top = [k for k in dict.fromkeys([*cur, *merged]) if cur.get(k) != merged.get(k)]
     print("变更: " + (", ".join(top) or "嵌套字段"))
 PYEOF
 )"
@@ -1132,11 +1137,13 @@ if [ "$mc_rc" = 1 ] && [ ! -f "$MC_SETTINGS" ]; then
 {
   "CLAUDE_MEM_RUNTIME": "worker",
   "CLAUDE_MEM_PROVIDER": "openrouter",
+  "CLAUDE_MEM_MODE": "code--zh",
+  "CLAUDE_MEM_QUOTA_FALLBACK_PROVIDER": "off",
   "CLAUDE_MEM_OPENROUTER_BASE_URL": "<YOUR_NEWAPI_BASE_URL>",
   "CLAUDE_MEM_OPENROUTER_MODEL": "mem-1",
   "CLAUDE_MEM_CONTEXT_OBSERVATIONS": "20",
   "CLAUDE_MEM_LLM_TIMEOUT_MS": "120000",
-  "CLAUDE_MEM_SKIP_TOOLS": "ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion,todowrite,skill,question,ask_user_question,list,ls,LS,list_mcp_resources,list_mcp_resource_templates,read,Read,bash,Bash,BashOutput,grep,Grep,glob,Glob,find,Find,ctx_*,web_*,codegraph_*,claude-mem_*,claude_mem_*,mcp,mcp__*",
+  "CLAUDE_MEM_SKIP_TOOLS": "ListMcpResourcesTool,SlashCommand,Skill,TodoWrite,AskUserQuestion,question,ask_user_question,list,ls,list_mcp_resources,list_mcp_resource_templates,read,bash,BashOutput,grep,glob,find,mcp,ctx_search,ctx_expand,ctx_reduce,context_rewrite,context_output_read,mem_search,mem_timeline,mem_get_observations,claude_mem_search,claude-mem_mem_search,claude-mem_search,claude-mem_timeline,claude-mem_get_observations",
   "CLAUDE_MEM_OPENROUTER_API_KEY": "<YOUR_API_KEY>"
 }
 EOF
@@ -1153,6 +1160,7 @@ if [ "$mcc_rc" = 1 ] && [ ! -f "$MC_CFG" ]; then
   cat > "$MC_CFG" <<'EOF'
 {
   "$schema": "https://raw.githubusercontent.com/cortexkit/magic-context/master/assets/magic-context.schema.json",
+  "language": "zh",
   "historian": {
     "opencode": {
       "model": "anthropic-newapi/deepseek-flash"
