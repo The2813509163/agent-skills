@@ -45,7 +45,7 @@ bash /tmp/opencode-setup.sh --plugins-only
 | 对象 | setup 行为 |
 | --- | --- |
 | Ponytail | 查询本地版本与 npm latest；有新版时默认询问刷新，确认后备份移走对应缓存并登记官方 `@latest`，下次宿主启动下载；不运行宿主 plugin CLI |
-| Magic Context | 单独询问刷新，默认 N；版本缺失／不明／过旧只报 WARN，不阻塞其他插件。确认后移走 latest 缓存并登记官方 `@latest`，下次宿主启动下载 |
+| Magic Context | 默认登记官方 `@latest`；旧缓存路径在可复用当前包时自动迁回包名。实际刷新另问，默认 N；确认后移走 latest 缓存，下次宿主启动下载 |
 | context-mode | 独立从 `releases/latest` 同步；v1 放 `plugins/context-mode/`，v2 放 `vendor/context-mode/`，不另加配置插件登记 |
 | notify | 仅完整安装的 v1 路径可选；v2 将旧入口备份停用，后续由 notify 项目适配 |
 
@@ -61,9 +61,10 @@ Magic Context 操作：
 
 - **选 Y**：确认 OpenCode／Desktop／Pi 均已停用、共享库已备份。只将 OpenCode 两代布局中的 Magic Context `@latest` 缓存移到 `$CFG/.agent-skills-backups/<时间戳>/magic-context-cache/`；旧目录／钉版登记改为官方 npm `@latest`，保留插件 options。不删除任意本地源码目录、Pi 包、其他插件缓存或数据库。
 - OpenCode v2 的 npm cache 可能把 `@latest` 做成指向数字代次目录的符号链接；用户配置的 `$XDG_CACHE_HOME`（未设置时 `$HOME/.cache`）本身也可以是符号链接。刷新时只移动受管 `@latest` 叶子链接本身，不跟随目标目录；npm、scope、包目录等中间父路径仍受符号链接保护。
-- **选 N／`-y`／无终端**：不刷新缓存，保留现有登记；兼容性问题只报 WARN。其他插件继续部署，但不保证 Magic Context 或宿主可以启动。没有登记且共享库版本未知时不新增入口。
-- **`--check`**：只报告现状，不询问、不刷新。通过仅表示套装可部署，不代表 Magic Context 已可用。
-- 未确认刷新时，首装仍优先沿用已有 OpenCode／Pi 版本；没有已装版本和共享库时固定用 0.45.0。v2 兼容基线至少 0.45。
+- **选 N／`-y`／无终端**：不刷新缓存。旧缓存路径仍指向当前宿主可复用的官方包时，自动改为 `@cortexkit/opencode-magic-context@latest`，保留 options，写入前备份配置。失效路径、旧缓存代次或跨主版本缓存不可直接复用时，保留登记并 WARN；不借迁移之名下载新版。
+- **`--check`**：预览登记迁移与 WARN，不询问、不写入、不刷新。通过仅表示套装可部署，不代表 Magic Context 已可用。
+- 现有 npm 包名、精确版本和自定义源码路径保持原样，不再把包名改成本地缓存路径。新安装登记官方 `@latest`；已有共享库而当前宿主无 latest 缓存时，未确认刷新就不新增入口。
+- 日常更新由 OpenCode v2 `/plugins` 的 `Ctrl+U` 或 `opencode plugin update @cortexkit/opencode-magic-context@latest` 管理（目标须与配置一致）。v2 启动复用已有缓存、检查更新，不自动替换已装包；缺包仍会下载，更新前须协调 Pi 并备份共享库。
 
 刷新后由宿主 loader 下载包、由 Magic Context 自己处理数据库迁移；setup 不运行它们。同机 Pi 的 Magic Context 需另行同步升级。Ponytail 仍使用官方双入口包，缺包由宿主下载。
 
@@ -89,6 +90,8 @@ Magic Context 操作：
 
 ### 临时 deprecated 迁移
 
+`mc-cache-entry`（1.0.15 起）：`deploy.py` 将旧部署器写入的 Magic Context `@latest` 缓存目录迁回官方包名。只处理受管缓存根内的标准包路径，且必须与当前宿主缓存解析结果一致；保留缓存和 options，配置沿用相邻备份。自定义源码路径、npm 精确版本不自动接管。完整安装与 `--plugins-only` 执行，`--check` 只预览；重复运行不再改回 Local。退役时删除标记块及本段，不恢复旧路径冻结逻辑。
+
 `mcphub-web-rename`：两个 setup 共用根目录 `migrate-web-mcp.py`，在模板合并前把旧 MCP 服务名改为 `web`。OpenCode 检查 `opencode.json`／`opencode.jsonc` 的 `mcp` 与 `mcp.servers`；完整安装和 `--plugins-only` 执行，`--check` 只预览。改前相邻备份 `.bak-web-*`，连接地址、凭据、禁用状态不变。两名并存且实值冲突时保留、WARN、跳过主配置模板合并，其他插件继续。退役时删除脚本、两个调用段及对应临时检查。
 
 `claude-mem-legacy` 标记对应短期过渡，不是长期历史兼容：旧 wrapper／lib 文件备份退役；旧受管 MCP 登记交官方安装器刷新。自定义命令／环境变量／禁用项保留，告警并跳过此次 claude-mem 官方更新。安装失败恢复本次安装前的 OpenCode 配置和插件，不回滚已经更新的 runtime；官方非致命 WARN 仍需按输出处理。
@@ -101,7 +104,7 @@ Magic Context 操作：
 2. 升级 OpenCode 二进制，再执行 setup 预检和插件同步
 3. 启动新版，由 OpenCode 自己迁移会话库与 CLI 配置；首次 npm 包安装需要网络
 
-Magic Context 的共享 `context.db` 由它自己的版本和迁移机制管理；升级须安排所有使用宿主均停用的窗口，在 setup 的独立询问中确认刷新。不能把 OpenCode 升级等同于允许升级 Magic Context。
+Magic Context 的共享 `context.db` 由它自己的版本和迁移机制管理；升级须安排所有使用宿主均停用的窗口，可用宿主包更新命令或 setup 的独立刷新询问。恢复包名登记仅复用当前缓存，不等于授权升级 Magic Context。
 
 v1/v2 可以并存二进制，但并行运行须隔离配置、数据、state、cache；Magic Context 存储也需按用途隔离。回退前保留升级后的新增数据，再恢复对应备份；只换旧二进制、只恢复插件目录都不是完整回退。
 

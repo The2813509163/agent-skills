@@ -197,43 +197,35 @@ def magic_context(entries, major, cfg, refresh=False):
         return resolve_magic_context(entry, major, cfg)
     except ValueError as error:
         print(f'WARN: Magic Context：{error}')
-        print('WARN: 未刷新缓存，保留现有登记；继续部署其他插件。Magic Context 尚未就绪，宿主启动可能失败；可重跑 setup 并确认刷新。')
+        print('WARN: 未刷新缓存，保留现有登记；继续部署其他插件。请核对 Magic Context 登记与缓存，需升级时在停用各宿主并备份后确认刷新。')
         return native(entry) if major == 2 else entry
 
 
 def resolve_magic_context(entry, major, cfg):
     if entry is None:
-        installed = cached_package(MC)
-        agent = Path(os.environ.get('PI_CODING_AGENT_DIR', Path.home() / '.pi/agent'))
-        pi = agent / 'npm/node_modules/@cortexkit/pi-magic-context/package.json'
-        version = load(installed / 'package.json').get('version') if installed else ''
-        version = version or load(pi).get('version') or load(agent / 'npm/node_modules/pi-magic-context/package.json').get('version')
         data = Path(os.environ.get('XDG_DATA_HOME', Path.home() / '.local/share'))
-        if not version and (data / 'cortexkit/magic-context/context.db').exists():
-            raise ValueError('已有共享 Magic Context 数据库但无法确认运行版本；请先单独配置插件，不自动引入新版本')
-        entry = MC + '@' + (version or '0.45.0')
-    if major == 1:
-        return entry
-    spec = package(entry)
-    if spec.startswith('file:'):
-        parsed = urlparse(spec)
-        root = Path(unquote(parsed.path).lstrip('/') if os.name == 'nt' else unquote(parsed.path))
-    elif spec.startswith(('.', '/')) or re.match(r'^[A-Za-z]:[/\\]', spec):
-        root = Path(spec) if Path(spec).is_absolute() else cfg / spec
-    else:
-        version = spec[len(MC):].lstrip('@') or 'latest'
-        if version != 'latest':
-            if tuple(int(n) for n in version.split('.')[:2]) < (0, 45):
-                raise ValueError('现有 Magic Context 早于 0.45；请在停用各宿主的窗口单独升级，再配置 v2')
-            return native(entry) if entry else spec
-        root = cached_package(MC, major)
-        if root is None:
-            raise ValueError('无法确定现有 Magic Context @latest 的已装版本；请先把条目固定为已安装版本或包目录，不自动升级共享数据库')
-    version = load(root / 'package.json').get('version', '')
-    if not version or tuple(int(n) for n in version.split('.')[:2]) < (0, 45):
-        raise ValueError(f'包版本 {version or "未知／缺失"}，v2 要求至少 0.45：{root}')
-    normalized = native(entry)
-    return {**normalized, 'package': str(root)} if isinstance(normalized, dict) else str(root)
+        if cached_package(MC, major) is None and (data / 'cortexkit/magic-context/context.db').exists():
+            raise ValueError('已有共享 Magic Context 数据库但当前宿主无 latest 缓存；不自动登记会下载新版的入口')
+        return MC + '@latest'
+    normalized = native(entry) if major == 2 else entry
+    local = directory(entry, cfg)
+    if local is None:
+        return normalized
+    # deprecated: mc-cache-entry；用户确认迁移期结束后删除此块，保留 npm／自定义路径原样返回。
+    for cache in npm_caches(MC):
+        try:
+            relative = local.relative_to(cache.resolve()).as_posix()
+        except ValueError:
+            continue
+        if not re.fullmatch(r'(?:\d+/)?node_modules/' + re.escape(MC), relative):
+            continue
+        current = cached_package(MC, major)
+        if current is None or local != current.resolve() or load(local / 'package.json').get('name') != MC:
+            raise ValueError(f'旧缓存路径不是当前宿主可复用的官方 latest 包，暂不迁移登记：{package(entry)}')
+        print(f'migrate: Magic Context 缓存路径 → {MC}@latest（保留已装包；写入前备份配置）')
+        return refreshed_entry(entry, MC, major)
+    # deprecated: mc-cache-entry 结束。
+    return normalized
 
 
 def is_mc(entry):
