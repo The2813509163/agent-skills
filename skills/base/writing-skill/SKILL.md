@@ -1,6 +1,6 @@
 ---
 name: writing-skill
-description: 把反复出现的经验、对话结论或踩坑固化成可移植的 skill，或在既有 skill 上增删改查。Use when asked to 写个skill/固化成skill/沉淀成skill/把这个流程做成skill，when a lesson keeps being retaught across sessions or machines，or when reviewing or trimming an existing skill. 判定"该进 skill 还是记忆"是第一步；算力平台四层落盘走 accel-skill-template，中文行文风格走 readable-docs，本机事实去情境化后回流前跑 platform-environment-skill-audit。
+description: 把经验、对话结论或踩坑固化成可移植的 skill，或在既有 skill 上增删改查。Use when asked to 写个skill/固化成skill/沉淀成skill/把这个流程做成skill，when a lesson keeps being retaught across sessions or machines，or when reviewing or trimming an existing skill. 从项目已有结果与经验建知识库，先用 distill-project-kb 筛选材料并确认范围，再由本skill组织落盘；算力平台四层落盘走 accel-skill-template，中文行文风格走 readable-docs，本机事实去情境化后回流前跑 platform-environment-skill-audit。
 ---
 
 # writing-skill：把经验写成可移植的 skill
@@ -11,13 +11,16 @@ description: 把反复出现的经验、对话结论或踩坑固化成可移植�
 
 ## 1. 先判定：这内容配不配做 skill
 
+项目结果/经验成库先用`distill-project-kb`找证据、判断价值并让用户补漏确认；本skill负责通用编写与组织，不重复筛选确认。知识库可保存带条件的案例事实，不限于纠正行为的指令。
+
 | 判定 | 去处 |
 | --- | --- |
 | 跨机器/跨项目会重复的**方法**（怎么做、怎么避坑） | skill |
 | 已有上游 skill 完整提供的方法、目录、配方与资源 | 优先作为外部依赖；本地只写触发、分工、适配与个人差异，不先复制再维护 |
-| 只对本机/本项目成立的**事实**（路径、版本、状态） | 记忆系统或 host 层文档，不是 skill |
-| 一次性任务、还没第二次发生 | 什么都不写，等它重复 |
-| agent 本来就会的通识 | 不写；skill 只写它不知道的差异点（确切键名/命令/版本行/坑） |
+| 支持可迁移判断的实测结果、经典数值、配置与反例 | kb-*的案例/参考；带适用条件、日期与证据，不泛化为保证 |
+| 只服务本项目运转的路径、身份、当前状态 | 记忆系统或host层文档；版本/对象可作为案例条件保留 |
+| 一次性流水、尚无迁移价值的见闻 | 不写；昂贵踩坑或有用实测不必等第二次发生 |
+| agent本来就会的通识 | 默认略；若真实误用或易混会影响结果，保留具体差异与反例 |
 
 混了本机事实的通用方法 → 写成 skill 时占位符化（`{{路径}}`），本机值进 host 层或记忆；platform-environment-skill-audit 管回流的脱敏底线。
 

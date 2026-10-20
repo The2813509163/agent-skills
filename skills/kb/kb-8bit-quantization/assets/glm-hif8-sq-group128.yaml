@@ -1,0 +1,101 @@
+# 2026-10-20已验实例；知识记录，不是可直接交给任意引擎的配置。
+model: ZhipuAI/GLM-4.7-Flash
+scope: development_fake_quant_W8A8KV8
+reference_source: '682239b'
+reference_report: '16d3719'
+hardware: '2x Ascend 910B2; CANN 9.0.0'
+stack: 'torch 2.9.0; torch-npu 2.9.0.post2; transformers 5.0.0'
+compute_and_storage: bfloat16
+rounding: nearest_ties_away
+saturation: finite_codebook
+preprocessing:
+  method: fused_smoothquant
+  alpha: 0.5
+  norm_groups: 188
+  compensated_linear: 3226
+  compensated_router: 46
+  online_x_div_s: false
+  unpaired_o_down_smoothing: false
+  transformed_weight_digest_count: 6264
+weight:
+  format: hif8
+  layout: 'O,I'
+  granularity: per_output_row_group
+  group_size: 128
+  selection: offline_weight_reconstruction_mse
+  center: 0
+  delta_grid: 'amax/32768 * 2^(k/4), k=-32..64'
+  basins: 3
+  refinement_octave_steps: [0.0625, 0.00390625]
+  refinement_directions: [-2,-1,0,1,2]
+  normal_path_candidate_evaluations: 130
+  boundary_extension: true
+  reconstruction_loss_dtype: 'BF16 stored reconstruction; FP32 MSE'
+  cache_reused_at_eval: true
+activation:
+  format: hif8
+  granularity: per_actual_token_group
+  group_size: 128
+  rule_selection: per_projection_training_output_nmse
+  rule_grid: 'zero Amax; std alpha=2^(k/4), k=-12..20, center=zero/mean'
+  screen_rows: 8
+  screen_shortlist: 2
+  full_fit_fallbacks: [zero_amax, mean_sqrt2_std]
+  boundary_extension: true
+  online: 'current group population std or amax; fixed selected alpha and center rule'
+  selected_rule_counts: {std_mean: 4877, std_zero: 1377, amax_zero: 10}
+  rules_reused_between_smoke_and_512: true
+kv:
+  format: hif8
+  granularity: token_head
+  head_dim: 256
+  std_multiplier: 0.625
+  center: mean
+  q_and_p: bfloat16
+  prefill_reads_quantized_values: true
+  history_requantized: false
+  cache_physical_storage: bfloat16
+calibration:
+  dataset: Salesforce/wikitext
+  subset: wikitext-2-raw-v1
+  split: train
+  fit_windows: 64
+  transfer_windows: 64
+  sequence_length: 256
+  seed: 42
+  batch_size: 8
+  rows_per_projection_cap: 64
+  minimum_fit_rows: 32
+  minimum_transfer_rows: 16
+  rare_expert_supplement: true
+  rows_collected_after_fusion: true
+  activation_upstream: fused_float_model
+execution:
+  quantized_linear: 6264
+  grouped_experts: 46
+  kv_layers: 47
+  hif8_backend: triton
+  grouped_backend: npu_grouped_matmul
+  pipeline: two_stage_threaded
+  batch_cap: 8
+  buckets: equal_effective_input_length_without_padding
+  scoring_use_cache: false
+evaluation:
+  samples_per_task: 512
+  task_order: [hellaswag, arc_easy, arc_challenge]
+  splits: [validation, test, test]
+  seed: 42
+  shots: 0
+  chat_template: none
+  max_length: 1024
+  metric: acc_norm
+  task_weighting: equal
+  correct: [414,413,299]
+  bf16_correct: [417,419,292]
+  mean_percent: 73.30729166666667
+  bf16_mean_percent: 73.4375
+  drop_pp: 0.13020833333333334
+  paired_vs_bf16: {gains: 25, losses: 27, improvement_ci95_pp: [-1.0417, 0.7813]}
+  eval_entry_minutes: 16.88
+  formal_acceptance: null
+  limitation: 'Repeated development subset; no independent confirmation, no native 8-bit GEMM/cache-compression claim'

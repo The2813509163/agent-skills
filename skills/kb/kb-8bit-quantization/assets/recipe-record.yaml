@@ -1,0 +1,70 @@
+# 可迁移记录模板；unknown保留为未知，不用工具默认值补证据。
+identity:
+  date: null
+  model_id: null
+  checkpoint_revision_or_digest: null
+  tokenizer_revision: null
+  source_commit: null
+  implementation: fake_quant_or_native
+  device_sdk_engine_versions: null
+numeric:
+  compute_dtype: null
+  accumulator_dtype: null
+  W: {format: null, variant: null, layout: 'O,I', kept_axes: [O], reduced_axes: [I], group_size: null, scale: null, center_or_zero_point: null, rounding: null}
+  A: {format: null, variant: null, layout: 'B,T,I', kept_axes: [B,T], reduced_axes: [I], group_size: null, dynamic: true, scale_rule: null, center: null}
+  K: {format: null, layout: 'B,H,T,D', reduced_axes: [D], group_size: null, scale_rule: null, quantize_on: write, history_rescaled: false}
+  V: {format: null, layout: 'B,H,T,D', reduced_axes: [D], group_size: null, scale_rule: null, quantize_on: write, history_rescaled: false}
+  Q: {format: high_precision, node: null}
+  P: {format: high_precision, node: normalized_softmax_or_block_exponential}
+  mask_padding_excluded: null
+  special_values_and_saturation: null
+preprocessing:
+  method_alpha_seed: null
+  fused_and_online_parts: null
+  shared_consumers_and_router_compensated: null
+  float_equivalence_evidence: null
+calibration:
+  dataset_revision_split: null
+  fit_windows_length_seed: null
+  transfer_windows_nonoverlap: null
+  upstream: float_or_quantized
+  rows_per_module_minimum_and_rare_experts: null
+  weight_objective_candidate_grid: null
+  activation_rule_grid: null
+  cache_keys: [original_W_digest, transformed_W_digest, quantized_W_digest, rows_digest, algorithm_version, format, granularity, settings]
+coverage:
+  included_modules: null
+  excluded_modules_and_reasons: null
+  linear_expert_kv_counts: null
+execution:
+  prefill_backend_and_actual_precision: null
+  decode_backend_and_actual_precision: null
+  grouped_backend: null
+  batch_bucketing_padding: null
+  pipeline_or_tp: null
+evaluation:
+  baseline_id: null
+  tasks_splits_samples_seed: null
+  template_shots_scoring: null
+  sample_identity_hashes: null
+  dataset_role: development_or_independent_confirmation
+  per_task_scores: null
+  mean_drop_pp: null
+  maximum_task_drop_pp: null
+  positive_drops_only_mean_pp: null
+  paired_gains_losses_interval: null
+  formal_acceptance: null
+timing:
+  load_seconds: null
+  offline_prepare_seconds: null
+  scoring_seconds: null
+  eval_entry_seconds: null
+  request_lengths_concurrency: null
+  ttft_itl_throughput: null
+  peak_allocated_reserved: null
+evidence:
+  fresh_logs_process_ownership: null
+  raw_results_and_official_replay: null
+  original_X_Xq_recompute: null
+  artifact_or_public_url: null
+  limitations_and_next_decision: null

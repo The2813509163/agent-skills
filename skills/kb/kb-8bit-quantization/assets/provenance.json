@@ -1,0 +1,58 @@
+{
+  "date": "2026-10-20",
+  "research_source": "682239b",
+  "research_report": "16d3719",
+  "sources": [
+    {
+      "file": "references/external-reference-2026-10-17.md",
+      "source": "docs/references/8bit-quantization-project-reference-2026-10-17.md",
+      "date": "2026-10-17",
+      "sha256": "60eb69671ae141ce65278363e384f7f48a356f82ab4c46ed7bbceed67630703b",
+      "preservation": "byte-identical user-supplied external survey"
+    },
+    {
+      "file": "references/external-supplement-2026-10-19.md",
+      "source": "docs/references/8bit-quantization-agent-supplement-2026-10-19.md",
+      "date": "2026-10-19",
+      "sha256": "e02625323ed64873d87408fd0d54969a0a67ffe6416a6463d671919c0ad2a453",
+      "preservation": "byte-identical user-supplied external survey"
+    },
+    {
+      "source": "docs/experiments/deployable-w8a8kv8-512.results.csv",
+      "sha256": "f72c726c08fed68c87f9ad4c146f88ebed3a2773cee96ec9ceff2d6c28a6e3be",
+      "preservation": "selected numeric rows normalized to portable CSV; full schema in local-evidence.md"
+    },
+    {
+      "source": "docs/experiments/hif8-joint-group-sq.report.md",
+      "sha256": "c24bb6df68e07d84391e0e2ac903cfe8527a3704bf24a50c8941d09f18286a70",
+      "preservation": "selected numeric rows normalized to portable CSV; full schema in local-evidence.md"
+    },
+    {
+      "source": "docs/experiments/hif8-precision-fast-eval.report.md",
+      "sha256": "ab2dd26fbfef44817187802bf81444d2089f22123a2096e3749d28629775c69e",
+      "preservation": "selected numeric rows normalized to portable CSV; full schema in local-evidence.md"
+    },
+    {
+      "source": "docs/experiments/hif8-precision-first.core.csv",
+      "sha256": "b33c1bd71fcfcc0058e82562baa4628c3fb4985f1a8b074e2ba680b809150587",
+      "preservation": "selected numeric rows normalized to portable CSV; full schema in local-evidence.md"
+    },
+    {
+      "source": "docs/experiments/hif8-std-e2e.stage2.report.md",
+      "sha256": "8de90662f6f10080e3e6cdda17c9ac31b175f562033017417ed9449a8ada592f",
+      "preservation": "selected numeric rows normalized to portable CSV; full schema in local-evidence.md"
+    },
+    {
+      "source": "docs/experiments/perchannel-qp.stage1.report.md",
+      "sha256": "dea5d1a6c1ce0e8b880282312a2cbcb44ed0c60f4ca253e66299ee249c80fb27",
+      "preservation": "selected numeric rows normalized to portable CSV; full schema in local-evidence.md"
+    }
+  ],
+  "csv": {
+    "file": "assets/local-results.csv",
+    "rows": 96,
+    "units": "scores percent; drop BF16-minus-candidate in percentage points",
+    "cross_group_comparison": "descriptive only; backend/batch/recipe differ",
+    "sha256": "6fda79223b16512653d7cb93a053927fedfa6369c9a35c0f0ddb03dc3c894565"
+  }
+}

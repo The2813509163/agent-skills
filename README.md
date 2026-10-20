@@ -8,7 +8,7 @@
 | Pi | 与 OpenCode 共享记忆配置 |
 | Codex | best effort；复用 skills 原文，不改工作流 |
 
-[快速安装](#快速安装) · [Skills](#skills本仓-31-个) · [首次部署](#首次部署只需要网关--5-个-key) · [Windows](#windowsgit-bash) · [Codex](#codex-插件配置best-effort) · [Pi](#pi-配置) · [OpenCode](#opencode-安装与迁移) · [更新](#更新)
+[快速安装](#快速安装) · [Skills](#skills本仓-33-个) · [首次部署](#首次部署只需要网关--5-个-key) · [Windows](#windowsgit-bash) · [Codex](#codex-插件配置best-effort) · [Pi](#pi-配置) · [OpenCode](#opencode-安装与迁移) · [更新](#更新)
 
 ## 快速安装
 
@@ -44,7 +44,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-ski
 bash -c "$(curl -fsSL --connect-timeout 8 -m 60 https://raw.githubusercontent.com/brilliantrough/agent-skills/main/skills-sync.sh)" -- base
 ```
 
-`base` 安装基础 16 个；`base research` 追加 7 个算法研究 skill；`all` 安装四组共 31 个。也可把 `research`、`accel`、`kb` 作为额外参数传给 `skills-sync.sh`。所有组都默认补装四个外部设计 skill，并更新已登记第三方。需要 curl、git、Node/npx；安装位置 `~/.agents/skills/`，重开会话生效。
+`base` 安装基础 17 个；`base research` 追加 7 个算法研究 skill；`all` 安装四组共 33 个。也可把 `research`、`accel`、`kb` 作为额外参数传给 `skills-sync.sh`。所有组都默认补装四个外部设计 skill，并更新已登记第三方。需要 curl、git、Node/npx；安装位置 `~/.agents/skills/`，重开会话生效。
 
 **Codex（best effort）**
 
@@ -71,9 +71,9 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-ski
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-skills/main/pi-setup.sh)"
 ```
 
-## Skills（本仓 31 个）
+## Skills（本仓 33 个）
 
-基础 16 个；算法研究 7 个；算力模板 7 个与公共知识 1 个按需选装。`research` 与 `kb` 随仓库刷新，`accel` 缺才装；另有四个设计依赖直接来自上游仓库，不复制到本仓。
+基础 17 个；算法研究 7 个；算力模板 7 个与公共知识 2 个按需选装。`research` 与 `kb` 随仓库刷新，`accel` 缺才装；另有四个设计依赖直接来自上游仓库，不复制到本仓。
 
 ### 工程技能
 
@@ -110,6 +110,15 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-ski
 - **风格**：PPT 要点式扫读；单元格不塞长文，复杂因果留短段落；见[中文改写示例](skills/base/readable-docs/references/examples.md)
 - **接入**：安装 skill，将 [AGENTS.tail.md](AGENTS.tail.md) 规范块合入项目 `AGENTS.md`；已有项目也需更新
 - **边界**：不批量重写旧文档，不改模板、规范强度、代码或原始证据
+
+### Skill 编写与知识沉淀（自制）
+
+| Skill | 用途 |
+|---|---|
+| [`distill-project-kb`](skills/base/distill-project-kb/SKILL.md) | 从项目证据筛选方法、实测、配置与踩坑；给建议、让用户补漏确认，再制作可迁移知识库 |
+| [`writing-skill`](skills/base/writing-skill/SKILL.md) | 通用 skill 编写与组织；项目经验成库先联动 `distill-project-kb`，不重复筛选确认 |
+
+知识库可保留带条件的案例、阴性结果和一次昂贵踩坑；模型/硬件/版本是适用条件，个人路径、凭据和运行状态留在项目记录。
 
 ### 任务工作流（自制）
 
@@ -155,6 +164,15 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-ski
 | `exp-probe` | 补数据点、失败重跑、sanity check、最小复现 | 一次聚焦检查；负结果也记录，不把代理结果外推成整模结论 |
 | `pytorch-perf-tuning` | PyTorch 评测慢、设备利用率低、显存浪费、批量预研 | 按证据处理同步、去重、batch、融合、多卡；正确且够用即收口 |
 | `kernel-worker` | 委派有界的 PyTorch 热点 kernel 适配/优化 | 独立工作区与单一写入者；固定参考、数值契约和 Event100 证据；Atrex 为可选外部能力 |
+
+### 公共知识（kb 组）
+
+| Skill | 内容与边界 |
+|---|---|
+| [`kb-accel-sdk`](skills/kb/kb-accel-sdk/SKILL.md) | 跨平台 SDK、PyTorch 与推理框架生态速查；不代替本机安装与验证 |
+| [`kb-8bit-quantization`](skills/kb/kb-8bit-quantization/SKILL.md) | 量化格式/轴、配方搜索、掉点诊断、实测与外部证据；附结果 CSV 和配方模板。伪量化与原生部署、研发集与独立验收分开，不承诺跨模型收益 |
+
+`kb` 可选安装、持续刷新且不自动备份；已有未回流修改先备份。阅读知识无需加载模型，原实验复现另需对应模型、平台与未打包工件。
 
 ### 科研图件（自制）
 
@@ -568,7 +586,7 @@ bash /tmp/opencode-setup.sh --plugins-only
 
 | 模式 | 处理范围 |
 | --- | --- |
-| 默认完整安装 | 插件、配置、依赖与通用 skills；默认 base 16 个，交互可选 research、accel、kb，全部选中时为 31 个，另同步外部设计 skills |
+| 默认完整安装 | 插件、配置、依赖与通用 skills；默认 base 17 个，交互可选 research、accel、kb，全部选中时为 33 个，另同步外部设计 skills |
 | `--plugins-only` | 自维护插件、context-mode 及其 skills、官方包登记、claude-mem runtime／入口／MCP；不更新模型／Python／通用 skills，不安装 notify |
 | `--check` | 下载校验自维护包，检查配置，查询 Ponytail／Magic Context 本地与 npm 版本；不询问、不改配置、认证或数据库 |
 
@@ -874,10 +892,10 @@ npm 缺失包在 OpenCode 启动时自动安装；已有包不会因重启自动
 
 | 组 | 策略 |
 |---|---|
-| base（品味/流程，16） | 每次随仓库刷新；本地有未回流改动先整目录备份到 `~/.local/share/agent-skills/.backups/` 再覆盖（回流后删备份） |
+| base（品味/流程，17） | 每次随仓库刷新；本地有未回流改动先整目录备份到 `~/.local/share/agent-skills/.backups/` 再覆盖（回流后删备份） |
 | research（算法研究，7） | 每次随仓库刷新；本地有未回流改动先按组备份再覆盖 |
 | accel（算力平台模板，7） | 缺才装；本机特化后永不覆盖 |
-| kb（公共知识，1） | 每次随仓库刷新，不备份 |
+| kb（公共知识，2） | 每次随仓库刷新，不备份 |
 
 客户端不分组：实体直落 `~/.agents/skills/<名>`，装了 Claude Code 的机器同步 `~/.claude/skills/<名>`（有差异才写）。选组只决定本次安装／更新；不选不会卸载已安装的 skill。
 
