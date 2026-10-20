@@ -8,7 +8,7 @@
 | Pi | 与 OpenCode 共享记忆配置 |
 | Codex | best effort；复用 skills 原文，不改工作流 |
 
-[快速安装](#快速安装) · [Skills](#skills本仓-27-个) · [首次部署](#首次部署只需要网关--5-个-key) · [Windows](#windowsgit-bash) · [Codex](#codex-插件配置best-effort) · [Pi](#pi-配置) · [OpenCode](#opencode-安装与迁移) · [更新](#更新)
+[快速安装](#快速安装) · [Skills](#skills本仓-31-个) · [首次部署](#首次部署只需要网关--5-个-key) · [Windows](#windowsgit-bash) · [Codex](#codex-插件配置best-effort) · [Pi](#pi-配置) · [OpenCode](#opencode-安装与迁移) · [更新](#更新)
 
 ## 快速安装
 
@@ -30,7 +30,7 @@ winget install --id Git.Git -e --source winget
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-skills/main/opencode-setup.sh)" -- -y
 ```
 
-先安装 OpenCode **v1 或 v2**；已有安装先退出 TUI 和后台服务。脚本按主版本部署插件，兼容旧散装入口；不升级宿主、不迁移会话库。默认同步 base skills；需要算力组时用交互安装选择全组。只更新插件用 `--plugins-only`，预检用 `--check`，详见[安装与迁移](#opencode-安装与迁移)。
+先安装 OpenCode **v1 或 v2**；已有安装先退出 TUI 和后台服务。脚本按主版本部署插件，兼容旧散装入口；不升级宿主、不迁移会话库。默认同步 base skills；交互时可分别选择 research、accel、kb 组。只更新插件用 `--plugins-only`，预检用 `--check`，详见[安装与迁移](#opencode-安装与迁移)。
 
 **Pi**
 
@@ -44,7 +44,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-ski
 bash -c "$(curl -fsSL --connect-timeout 8 -m 60 https://raw.githubusercontent.com/brilliantrough/agent-skills/main/skills-sync.sh)" -- base
 ```
 
-`base` 安装基础 19 个，`all` 加算力/知识组到 27 个；两者都默认补装四个外部设计 skill，并更新已登记第三方。需要 curl、git、Node/npx；安装位置 `~/.agents/skills/`，重开会话生效。
+`base` 安装基础 16 个；`base research` 追加 7 个算法研究 skill；`all` 安装四组共 31 个。也可把 `research`、`accel`、`kb` 作为额外参数传给 `skills-sync.sh`。所有组都默认补装四个外部设计 skill，并更新已登记第三方。需要 curl、git、Node/npx；安装位置 `~/.agents/skills/`，重开会话生效。
 
 **Codex（best effort）**
 
@@ -59,7 +59,7 @@ bash -c "$(curl -fsSL --connect-timeout 8 -m 60 https://raw.githubusercontent.co
 | 默认值 | 行为 | 项目 |
 |---|---|---|
 | Y | 执行 | 装缺件、字段级合并配置（保留本地敏感值）、刷新 skills |
-| N | 跳过 | notify 首装（仅 OpenCode v1）、算力／知识 skills 组、升级 Pi 本体、升级 Magic Context、无代理继续、AGENTS.md 注入 |
+| N | 跳过 | research／accel／kb 可选组、notify 首装（仅 OpenCode v1）、升级 Pi 本体、升级 Magic Context、无代理继续、AGENTS.md 注入 |
 | 凭据 | 仍询问 | 无终端则跳过，保留占位符；无人值守可用环境变量预填 |
 
 等价写法：`--yes`、`ASSUME_YES=1`、`curl -fsSL <脚本 URL> | bash -s -- -y`。
@@ -71,9 +71,9 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-ski
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-skills/main/pi-setup.sh)"
 ```
 
-## Skills（本仓 27 个）
+## Skills（本仓 31 个）
 
-基础 19 个；算力模板 7 个与公共知识 1 个按需选装。另有四个设计依赖直接来自上游仓库，不复制到本仓。
+基础 16 个；算法研究 7 个；算力模板 7 个与公共知识 1 个按需选装。`research` 与 `kb` 随仓库刷新，`accel` 缺才装；另有四个设计依赖直接来自上游仓库，不复制到本仓。
 
 ### 工程技能
 
@@ -104,10 +104,10 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-ski
 
 | Skill | 用途 |
 |---|---|
-| [`readable-docs`](skills/readable-docs/SKILL.md) | 面向人的技术文本：短语、分点、紧凑对比表；保留事实、条件与约束强度 |
+| [`readable-docs`](skills/base/readable-docs/SKILL.md) | 面向人的技术文本：短语、分点、紧凑对比表；保留事实、条件与约束强度 |
 
 - **范围**：README、设计、计划、报告、runbook、变更记录、记忆文档；不限目录
-- **风格**：PPT 要点式扫读；单元格不塞长文，复杂因果留短段落；见[中文改写示例](skills/readable-docs/references/examples.md)
+- **风格**：PPT 要点式扫读；单元格不塞长文，复杂因果留短段落；见[中文改写示例](skills/base/readable-docs/references/examples.md)
 - **接入**：安装 skill，将 [AGENTS.tail.md](AGENTS.tail.md) 规范块合入项目 `AGENTS.md`；已有项目也需更新
 - **边界**：不批量重写旧文档，不改模板、规范强度、代码或原始证据
 
@@ -117,6 +117,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-ski
 
 | Skill | 适用任务 | 流程 |
 |---|---|---|
+| `goal-first` | 研究、开发和计划的主线约束 | 保持交付、当前未知、下一步和收口条件；不因意外发现静默扩展范围 |
 | `quick-do` | 行为明确的小修小补 | 读代码 → 当前会话修改、验证；不 grilling、不写计划 |
 | `steady-do` | 日常功能、插件、扩展 | 理解项目 → 分轮澄清 → 当前会话实现、验证；不写交接文档 |
 | `plan-brief` | 长程多阶段任务 | 澄清 → 计划 `docs/plans/<slug>.md` + 启动 prompt → 新会话执行 → 报告 → 原会话审查 |
@@ -141,16 +142,19 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-ski
 |---|---|
 | `personal-ui-taste` | 内容驱动的设计伙伴：主动推荐结构/叙事/交互，编排外部设计方法，以有范围的个人反馈校准 |
 
-### 科研实验（自制）
+### 科研与算法性能（research 组）
 
-ponytail for experiments：规模随证据收缩，完整性满足论点。
+研究方法按场景可选安装；`goal-first` 仍在 base，作为通用的主线约束。
 
 | Skill | 适用场景 | 流程与边界 |
 |---|---|---|
-| `exp-discuss` | 模糊想法 | 带证据分轮追问、指出遗漏、找最便宜的证伪观测；不设计矩阵、不运行 |
-| `exp-campaign` | 分阶段、可剪枝的实验战役 | 观察已有结果 → 枚举最大空间 → 廉价探针剪枝 → 带观察门限的决策树计划；分阶段交给 exp-batch |
-| `exp-batch` | 一条有界分支：方法×数据×预算，或消融分支 | 确认未被剪枝 → 预检环境/资源、显式指定可见设备 → 按项目惯例运行 → 指标落共享表格 |
-| `exp-probe` | 补数据点、失败重跑、sanity check、最小复现 | 一次性抽查；至多一个聚焦问题，一行汇报 |
+| `exp-discuss` | 研究问题尚未说清 | 证据优先分轮讨论；不设计矩阵、不运行 |
+| `exp-workflow` | 代理、小数据集矩阵与整模评测之间的路线选择 | 协调问题、证据、PyTorch 就绪检查和整模验证；代理不是必经关卡 |
+| `exp-campaign` | 探索、消融、交互、Pareto 或论文矩阵 | 按研究问题设计覆盖与阶段；不因矩阵大就机械剪枝 |
+| `exp-batch` | 一条有界分支或已确定的矩阵阶段 | 整批预检环境/资源、代码就绪与成本；按项目惯例运行并落指标 |
+| `exp-probe` | 补数据点、失败重跑、sanity check、最小复现 | 一次聚焦检查；负结果也记录，不把代理结果外推成整模结论 |
+| `pytorch-perf-tuning` | PyTorch 评测慢、设备利用率低、显存浪费、批量预研 | 按证据处理同步、去重、batch、融合、多卡；正确且够用即收口 |
+| `kernel-worker` | 委派有界的 PyTorch 热点 kernel 适配/优化 | 独立工作区与单一写入者；固定参考、数值契约和 Event100 证据；Atrex 为可选外部能力 |
 
 ### 科研图件（自制）
 
@@ -166,6 +170,7 @@ ponytail for experiments：规模随证据收缩，完整性满足论点。
 | 记忆 skill | Magic Context、claude-mem、`docs/` StrictDoc；缺一层仍可用其余层 |
 | 工作流 / 技术写作 | 无硬依赖 |
 | personal-ui-taste | 四个外部设计 skill；默认安装，按任务读取，缺失时说明降级 |
+| research skill | PyTorch、实验执行和性能方法；Atrex 仅在目标环境已就绪时按需使用 |
 
 - `.sdoc` 校验需要 `strictdoc`：脚本末尾检查 `uv`，缺则安装；可选全局安装 `uv tool install strictdoc==0.28.1`，升级用 `uv tool upgrade strictdoc`
 - 项目接入记忆系统：使用 [AGENTS.tail.md](AGENTS.tail.md) 中 `memory-system:start/end` 引导块
@@ -563,7 +568,7 @@ bash /tmp/opencode-setup.sh --plugins-only
 
 | 模式 | 处理范围 |
 | --- | --- |
-| 默认完整安装 | 插件、配置、依赖与通用 skills；默认 base 19 个，交互可选全组 27 个，另同步外部设计 skills |
+| 默认完整安装 | 插件、配置、依赖与通用 skills；默认 base 16 个，交互可选 research、accel、kb，全部选中时为 31 个，另同步外部设计 skills |
 | `--plugins-only` | 自维护插件、context-mode 及其 skills、官方包登记、claude-mem runtime／入口／MCP；不更新模型／Python／通用 skills，不安装 notify |
 | `--check` | 下载校验自维护包，检查配置，查询 Ponytail／Magic Context 本地与 npm 版本；不询问、不改配置、认证或数据库 |
 
@@ -865,17 +870,18 @@ npm 缺失包在 OpenCode 启动时自动安装；已有包不会因重启自动
 
 ### Skills
 
-本仓库 skill 由三个 setup 脚本统一调用的 `skills-sync.sh`（仓库根）分组同步，**重跑完整 setup 刷新所选组**；OpenCode 的 `--plugins-only` 不更新通用 skills。始终从 GitHub 拉取 `main` tarball 安装；分组即仓库 `skills/{base,accel,kb}/` 目录，新增 skill 放入对应组目录即可，无名单维护：
+本仓库 skill 由三个 setup 脚本统一调用的 `skills-sync.sh`（仓库根）分组同步，**重跑完整 setup 刷新所选组**；OpenCode 的 `--plugins-only` 不更新通用 skills。始终从 GitHub 拉取 `main` tarball 安装；分组即仓库 `skills/{base,research,accel,kb}/` 目录，新增 skill 放入对应组目录即可，无名单维护：
 
 | 组 | 策略 |
 |---|---|
-| base（品味/流程，19） | 每次随仓库刷新；本地有未回流改动先整目录备份到 `~/.local/share/agent-skills/.backups/` 再覆盖（回流后删备份） |
+| base（品味/流程，16） | 每次随仓库刷新；本地有未回流改动先整目录备份到 `~/.local/share/agent-skills/.backups/` 再覆盖（回流后删备份） |
+| research（算法研究，7） | 每次随仓库刷新；本地有未回流改动先按组备份再覆盖 |
 | accel（算力平台模板，7） | 缺才装；本机特化后永不覆盖 |
 | kb（公共知识，1） | 每次随仓库刷新，不备份 |
 
-客户端不分组：实体直落 `~/.agents/skills/<名>`，装了 Claude Code 的机器同步 `~/.claude/skills/<名>`（有差异才写）。
+客户端不分组：实体直落 `~/.agents/skills/<名>`，装了 Claude Code 的机器同步 `~/.claude/skills/<名>`（有差异才写）。选组只决定本次安装／更新；不选不会卸载已安装的 skill。
 
-第三方由共用同步器末尾的 `skills-external.sh` 处理：默认补装四个设计依赖，再按锁表更新已登记第三方（包括用户另装的 drawio/find-skills 等）。同时排除本仓来源与当前 `skills/{base,accel,kb}` 下的名字，避免旧锁表把本仓 skill 误认成第三方。
+第三方由共用同步器末尾的 `skills-external.sh` 处理：默认补装四个设计依赖，再按锁表更新已登记第三方（包括用户另装的 drawio/find-skills 等）。同时排除本仓来源与当前 `skills/{base,research,accel,kb}` 下的名字，避免旧锁表把本仓 skill 误认成第三方。
 
 ```bash
 bash skills-external.sh   # 在克隆的套件根单独补装/更新第三方，不动本仓 skill 或插件配置

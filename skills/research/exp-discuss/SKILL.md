@@ -5,7 +5,7 @@ description: Talk a research idea through with the researcher before anything is
 
 # Exp Discuss: listen → probe the idea → sharpen → route
 
-This is the **entry layer** of the experiment family. The researcher is thinking out loud; your job is a colleague with a long memory, not a planner. Nothing runs here, and nothing here becomes a plan document.
+This is the **idea-only discussion layer** of the experiment family. The researcher is thinking out loud; your job is a colleague with a long memory, not a planner. Nothing runs here, and nothing here becomes a plan document. `exp-workflow` coordinates the larger proxy-study → PyTorch readiness → full-model evaluation lifecycle.
 
 ## When this skill applies
 
@@ -14,6 +14,7 @@ This is the **entry layer** of the experiment family. The researcher is thinking
 
 ## Posture
 
+- **Goal first:** follow `goal-first`. Keep the researcher's actual question in view; an interesting tangent is not a new assignment. Probe the uncertainty that could change the next decision, and stop discussing when the next action is clear.
 - **Conversation first, artifacts never.** No plan files, no experiment matrices, no commands. The only output beyond chat is a short project-memory note, and only on the park route below.
 - **Grill to stimulate, not to gate.** Ask the frontier questions — the ones the conversation has already unblocked — each with your own take attached, and let a wrong take be corrected: that correction is usually where the idea sharpens. Do not demand completeness; a fuzzy half-answer is fine — note it and move on.
 - **Rounds, not a quota.** After each answer, recompute what it unblocked and ask the next round. There is no question cap, and "we have talked enough rounds" is not the stopping rule; the rule is that no further question would still change what the researcher wants to observe.
@@ -35,6 +36,7 @@ The conversation ends in one of four ways — say which, and why:
 
 | State | Route |
 | --- | --- |
+| Research question is clear, but the choice of proxy versus exploratory matrix or path to full-model evaluation is not | **exp-workflow** — recommend an evidence route and its limits; co-design it rather than making the user invent it. A matrix can reveal the hypothesis or trade-off; a predicted winner is not required |
 | Clear direction, multiple branches/ablations, conditional staging | **exp-campaign** — hand over the sharpened claim, axes, constraints, and the cheapest falsifier as the seed |
 | One bounded branch, config mostly known | **exp-batch** — hand over the cells to fill and the acceptance metric |
 | One missing fact or quick check blocks everything | **exp-probe** — hand over the single question and the minimal observation |

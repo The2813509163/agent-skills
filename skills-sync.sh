@@ -1,17 +1,34 @@
 #!/usr/bin/env bash
 # skills-sync.sh — 本仓分组同步 + 外部依赖(pi/opencode/codex 三个 setup 共用,也可单跑)
 #
-# 分组 = 仓库 skills/ 下的目录(base/ accel/ kb/):新增 skill 只需放入对应组目录,没有名单要维护。
-# 策略:base 每次随仓库刷新(本地有未回流改动先备份);accel 缺才装(本机特化不覆盖);kb 每次刷新。
+# 分组 = 仓库 skills/ 下的目录(base/research/accel/kb):新增 skill 只需放入对应组目录,没有名单要维护。
+# 策略:base/research 每次刷新且漂移先备份;accel 缺才装(本机特化不覆盖);kb 每次刷新、不备份。
 # 安装:整目录复制到 ~/.agents/skills/<名>;装了 Claude Code 的机器同步 ~/.claude/skills/<名>(有差异才写)。
 # 备份:~/.local/share/agent-skills/.backups/<组>/<名>.bak-<时间戳>(回流仓库后自行删除)。
 #
-# 用法:skills-sync.sh [all|base]   all = 全部组;base = 仅基础组(个人工作站)
+# 用法:skills-sync.sh [all|base|research|accel|kb ...]
+#       无参数/all = 全部组;可传多个组(例如 base research);setup 默认至少传 base。
 # 源:始终从 GitHub 拉取 main tarball 到 ~/.cache/agent-skills-src 后安装(不读本地克隆,不依赖 git)。
 set -euo pipefail
 
-SCOPE="${1:-all}"
-case "$SCOPE" in all) SYNC_GROUPS="base accel kb" ;; base) SYNC_GROUPS="base" ;; *) echo "用法: $0 [all|base]" >&2; exit 2 ;; esac
+SCOPE_ARGS=("$@")
+[ "${#SCOPE_ARGS[@]}" -gt 0 ] || SCOPE_ARGS=(all)
+SYNC_GROUPS=""
+add_group() {
+  case " $SYNC_GROUPS " in *" $1 "*) return ;; esac
+  SYNC_GROUPS="${SYNC_GROUPS:+$SYNC_GROUPS }$1"
+}
+if [ "${#SCOPE_ARGS[@]}" = 1 ] && [ "${SCOPE_ARGS[0]}" = all ]; then
+  SYNC_GROUPS="base research accel kb"
+else
+  for scope in "${SCOPE_ARGS[@]}"; do
+    case "$scope" in
+      base|research|accel|kb) add_group "$scope" ;;
+      all) echo "用法: $0 [all|base|research|accel|kb ...](all 不能与其他组混用)" >&2; exit 2 ;;
+      *) echo "用法: $0 [all|base|research|accel|kb ...]" >&2; exit 2 ;;
+    esac
+  done
+fi
 
 cache="$HOME/.cache/agent-skills-src"
 mkdir -p "$cache"
@@ -69,7 +86,7 @@ sync_one() {  # $1=组 $2=策略(refresh|missing) $3=备份(1|0) $4=名
 
 for g in $SYNC_GROUPS; do
   case "$g" in
-    base)  policy=refresh; bak=1 ;;
+    base|research)  policy=refresh; bak=1 ;;
     accel) policy=missing; bak=0 ;;
     kb)    policy=refresh; bak=0 ;;
   esac

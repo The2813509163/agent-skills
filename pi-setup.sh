@@ -1231,17 +1231,17 @@ if [ "$PI_OK" -eq 1 ]; then
 fi
 
 # ---- 7. skills 本体 ----
-# 分组 = 仓库 skills/{base,accel,kb}/ 目录,策略由 skills-sync.sh 执行:base/kb 每次随仓库刷新
-# (base 本地有未回流改动先备份到 ~/.local/share/agent-skills/.backups);accel 缺才装(本机特化不覆盖)。
+# 分组 = 仓库 skills/{base,research,accel,kb}/ 目录,策略由 skills-sync.sh 执行:
+# base/research 每次刷新且漂移先备份;accel 缺才装(本机特化不覆盖);kb 每次刷新。
 # 客户端实体直落 ~/.agents/skills/<名>(装了 Claude Code 时同步 ~/.claude/skills/<名>)。
 # 同步器随后用 npx skills 补装外部设计依赖、更新已登记第三方。
 _ss="$(mktemp --suffix=.sh 2>/dev/null || mktemp)"
 if curl -fsSL --connect-timeout 8 -m 60 -o "$_ss" "$SELF_RAW/skills-sync.sh"; then
-  if ask "安装/更新 skills(base+accel+kb 三组;base 每次刷新·漂移自动备份,accel 缺才装;选 N 只装 base 组,个人工作站选这个);pi 原生读 ~/.agents/skills" N; then
-    bash "$_ss" all || echo "WARN: skills 同步未完全成功" >&2
-  else
-    bash "$_ss" base || echo "WARN: skills 同步未完全成功" >&2
-  fi
+  SKILL_GROUPS=(base)
+  ask "安装/更新 research 组(算法研究、实验、PyTorch 性能与 kernel;每次刷新·漂移自动备份)?" N && SKILL_GROUPS+=(research)
+  ask "安装/更新 accel 组(算力平台模板;缺才装·本机特化不覆盖)?" N && SKILL_GROUPS+=(accel)
+  ask "安装/更新 kb 组(公共算力知识;每次刷新)?" N && SKILL_GROUPS+=(kb)
+  bash "$_ss" "${SKILL_GROUPS[@]}" || echo "WARN: skills 同步未完全成功" >&2
 else
   echo "WARN: skills-sync.sh 下载失败,跳过(检查代理)" >&2
 fi

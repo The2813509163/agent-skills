@@ -58,7 +58,7 @@ const lockPath = path.join(require('node:os').homedir(), '.agents', '.skill-lock
 const skills = fs.existsSync(lockPath) ? JSON.parse(fs.readFileSync(lockPath, 'utf8')).skills : {};
 const mine = 'brilliantrough/agent-skills';
 const own = new Set();
-for (const group of ['base', 'accel', 'kb']) {
+for (const group of ['base', 'research', 'accel', 'kb']) {
   const dir = path.join(process.argv[2], 'skills', group);
   for (const name of fs.readdirSync(dir)) if (fs.existsSync(path.join(dir, name, 'SKILL.md'))) own.add(name);
 }

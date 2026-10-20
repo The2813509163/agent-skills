@@ -7,6 +7,8 @@ description: Turn a complex, thought-through requirement into a detailed executi
 
 **One job, three artifacts: (1) a detailed execution plan document, (2) a copy-paste launcher prompt that starts a FRESH session to execute it, (3) later, the review of that session's report.** You plan and review; you NEVER execute the plan and never spawn execution sub-agents.
 
+Apply `goal-first`: each planned investigation or step must serve the agreed outcome or resolve a decision-critical unknown. Carry budgets, stopping conditions and how to handle incidental findings into the existing plan/prompt; do not add another process document.
+
 Deliverables checklist — none of these may be skipped silently:
 
 - [ ] plan doc `docs/plans/YYYY-MM-DD-<slug>.md` (the project's own working-doc dir if it differs)
@@ -32,7 +34,7 @@ Deliverables checklist — none of these may be skipped silently:
 
 ## Phase 2 — Grill every open detail
 
-The requirement never carries enough detail. Use this bounded round-based method directly — it needs no separate skill:
+Resolve only material details still missing after investigation. Use this bounded round-based method directly — it needs no separate skill:
 
 - Ask only unresolved decisions that change scope, behavior, compatibility, risk, execution order, or acceptance; give a recommendation with brief trade-offs.
 - Group independently answerable questions into one round; defer dependent ones until their prerequisites settle. After each round, recompute what it unblocked and ask the next: rounds continue while a further question would still change a decision above. The stopping rule is "nothing material left open", not "one round done".
@@ -45,7 +47,7 @@ ALWAYS settle the following, from investigation or an explicit user decision:
 - **Execution order** — dependencies, milestones, genuinely independent or parallel work.
 - **Document location** — the project's working-doc directory; default `docs/plans/YYYY-MM-DD-<slug>.md`. Report and review live beside the plan with the same basename.
 - **Verification mode — mandatory decision; name it in one line in the plan and justify it:**
-  - **TDD mode** — only when the feedback loop is fast and tests are cheap (frontend/UI, product services, library code with instant unit tests). Invoke the `tdd` skill.
+  - **TDD mode** — when explicitly requested or required by project policy; invoke the `tdd` skill and identify a meaningful verification seam. A fast feedback loop alone does not require TDD.
   - **Smoke-and-read mode** (default for research, long-running, or heavy-compute work): the smallest real execution path + rereading your own code + checking the adjacent behavior it touches. No pytest, no test scaffolding, no wrapper harnesses — the run itself is the cost. The user runs the real workload afterwards.
   - Rule of thumb: if writing and running the test costs more than the failures it would catch, don't write it.
 - **Acceptance and responsibility** — what is observed, the expected result, cost and environment limits, and who runs/verifies what at the end.

@@ -5,6 +5,8 @@ description: Execute small, well-understood changes directly in the current sess
 
 # Quick Do: understand → do → verify
 
+Apply `goal-first`: keep the requested outcome and smallest sufficient check in view. An incidental discovery is work only if it affects that outcome; do not turn a bounded edit into exploration or cleanup. No extra planning artifact.
+
 ## When this skill applies
 
 - Small, well-understood changes with a known verification path: localized fixes, mechanical edits, config tweaks, short scripts.

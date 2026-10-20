@@ -7,10 +7,13 @@ description: Execute one bounded research experiment branch in the current sessi
 
 Small but complete: one branch, done right, plottable. Do not expand scope sideways into other branches; do not shrink rigor to save time.
 
+Apply `goal-first`: run what supports the learning question, Pareto/ablation coverage, agreed scientific claim or a live decision. Stop when that purpose and required coverage are satisfied; incidental findings do not silently expand the batch. A scientifically needed matrix is not wasteful merely because it has many cells.
+
 ## 1. Confirm the branch is still necessary
 
 - Check project memory, the campaign plan, and existing results: has a probe already pruned this branch? Is the metric already measured under an equivalent configuration? If yes, say so and stop (or record why the earlier pruning does not apply).
 - Restate in 2-3 sentences: what this batch adds to the final table/figure, which cells it fills, and its acceptance metric. No plan document.
+- For a new algorithm branch, use `exp-workflow` to propose and agree the evidence route: an existing result, a proxy or a direct exploratory/confirmatory matrix. Costly full-model runs need code-readiness evidence, not a mandatory prior proxy or positive result; do not make the researcher invent the study.
 
 ## 2. Grill only unresolved config decisions
 
@@ -26,8 +29,9 @@ A run that starts without this pass is the run that fights someone else for the 
 - **Know the platform first:** use the device platform the project's memory, conventions, or the session already names (CUDA / Ascend / MUSA / PPU-class / …). If it is genuinely unknown, read it off the environment (installed toolkit, device files, what the project's own launcher sets) or ask once; then work in that platform's own tool and variable vocabulary — wrong-platform errors are self-inflicted and cost runs.
 - **Resources as they are, not as they usually are:** read the live device state with whatever this box uses — `nvidia-smi`, Ascend's `npu-smi`, MUSA's `mthreads-smi`, or the platform's equivalent — for utilization, memory, and **which process owns each device** (other people's jobs and this project's own parallel branches both count). Decide from that read and pass the device explicitly through the platform's visible-device variable (`CUDA_VISIBLE_DEVICES`, `ASCEND_RT_VISIBLE_DEVICES`, `MUSA_VISIBLE_DEVICES`, …); never let a run fall through to the default device. Disk for checkpoints/logs, and RAM/CPU when the job is not device-bound, come from the same look.
 - **Collisions:** leftover jobs from earlier attempts ("did the last one really die?") and sibling branches are the usual hidden claim on a card; owner, name, and elapsed time in the process list settle it.
-- **Cost:** an honest duration/memory estimate for this configuration, so later contention reads as contention instead of being blamed on the code.
+- **Cost:** estimate the whole batch—shared loading, per-configuration preparation/compilation/scoring and repeats—not just one short run. A small dataset can still multiply costly loading or inefficient evaluation across many configurations.
 - **Then run** under the project's rules on who launches what. If the free resources do not fit the configuration, do not start and do not silently shrink it: state what is short, and pick between waiting, another device, or an agreed config change.
+- **Batch/model readiness:** before a batch through the real-model evaluation path—including small-dataset exploratory matrices—or any costly run, follow `exp-workflow`: inspect with `pytorch-perf-tuning`, preserve semantics, check numerics and a tiny real-model path, and assess aggregate cost. Reuse valid evidence rather than retuning every cell. Cheap local one-off probes need only their relevant checks; a stage label is not an efficiency exemption or a reason for deep tuning.
 
 ## 4. Implement in this session, run under project conventions
 
@@ -54,6 +58,6 @@ Long runs (device hours) must not hold the turn and must not be polled in a loop
 ## 6. Land the metrics where figures can use them
 
 - Every run lands in the shared results table with: id, config, split, surface, metrics, status, evidence path. Include every epoch/point recorded, not only the chosen one.
-- Before finishing, check plottability: does this batch slot into the final figure as its own curve family, with the anchors (baseline reference lines) it needs? If the data shape would force an awkward plot (isolated points, mixed axes), fix the data collection now, not at figure time.
+- Before finishing, check that results support the learning question or agreed comparison with consistent axes/metrics. Add measurements when response trends, Pareto/ablation coverage or formal claims need them; required scientific curve coverage is legitimate. Avoid additions whose only purpose is visual symmetry.
 - **Batch report is mandatory — including for partial, blocked, or aborted work.** Write `<batch-or-stage>.report.md` beside the campaign plan (default `docs/experiments/<slug>.stage<N>.report.md`; a standalone branch goes in the project's experiment area) with: 完成情况总表 (per planned run/cell: 完成 / 部分 / 搁置 / 未动 + evidence path), the exact configs and commands that ran, what was not run and why, metric-contract deviations, failures and how they were handled (eviction / OOM / NaN), and what the campaign should reconsider. Never fake a result row, never silently skip a planned run.
 - Report the same content concisely in chat. The planning session is **not** woken by this batch — the researcher brings the report back, so the file is what gets reviewed.

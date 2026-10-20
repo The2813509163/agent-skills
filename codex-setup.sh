@@ -616,11 +616,15 @@ else
   else warn '缺少 CodeGraph,跳过 MCP 注册'; fi
 fi
 
-# ---- 5. skills:共用同步器刷新 base(漂移先备份)、补装外部设计依赖并更新第三方 ----
+# ---- 5. skills:共用同步器刷新 base/research(漂移先备份)、补装外部设计依赖并更新第三方 ----
 SELF_RAW="https://raw.githubusercontent.com/brilliantrough/agent-skills/main"
 _ss="$(mktemp --suffix=.sh 2>/dev/null || mktemp)"
 if curl -fsSL --connect-timeout 8 -m 60 -o "$_ss" "$SELF_RAW/skills-sync.sh"; then
-  bash "$_ss" base || warn 'skills 同步未完全成功'
+  SKILL_GROUPS=(base)
+  ask "安装/更新 research 组(算法研究、实验、PyTorch 性能与 kernel;每次刷新·漂移自动备份)?" N && SKILL_GROUPS+=(research)
+  ask "安装/更新 accel 组(算力平台模板;缺才装·本机特化不覆盖)?" N && SKILL_GROUPS+=(accel)
+  ask "安装/更新 kb 组(公共算力知识;每次刷新)?" N && SKILL_GROUPS+=(kb)
+  bash "$_ss" "${SKILL_GROUPS[@]}" || warn 'skills 同步未完全成功'
 else
   warn 'skills-sync.sh 下载失败,跳过 skills 同步'
 fi

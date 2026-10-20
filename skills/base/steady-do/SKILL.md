@@ -5,6 +5,8 @@ description: Develop features in an existing project within the current session 
 
 # Steady Do: understand → clarify → implement here → verify
 
+Apply `goal-first`: anchor work to the agreed outcome, current uncertainty, next useful action and stopping condition. Recheck on surprises or scope/cost growth; finish the full requirement, not every improvement discovered along the way.
+
 ## When this skill applies
 
 - Ordinary feature, plugin, extension, and cross-module work in an existing project, implemented and verified in this session.
@@ -28,7 +30,7 @@ Use the bounded, round-based grilling method below; it is self-contained and doe
 - After each round, recompute what its answers unblocked and ask the next round. Rounds continue while a further question would still change behavior, scope, compatibility, risk, or acceptance; the stopping rule is nothing material left open, not one round done.
 - Do not repeat settled questions or invent a question quota. If the request and context already resolve the decisions, proceed to the recap.
 - **Verification mode — mandatory decision; name it in the recap and justify it in one line:**
-  - **TDD mode** — only when the feedback loop is fast and tests are cheap (frontend/UI, product services, library code with instant unit tests); invoke the `tdd` skill.
+  - **TDD mode** — when explicitly requested or required by project policy; use the `tdd` skill and choose a seam that actually verifies the requirement. A fast feedback loop alone does not require TDD.
   - **Smoke-and-read mode** (default for research, long-running, or heavy-compute work): the smallest real execution path + rereading your own change + checking the adjacent behavior it touches; the user runs the real workload afterwards. No test scaffolding, no wrapper harnesses.
   - Rule of thumb: if writing and running the test costs more than the failures it would catch, don't write it.
 - **Acceptance and responsibility** — what is observed, the expected result, and who runs/verifies what at the end. Reuse an agreed verification approach instead of asking again.
