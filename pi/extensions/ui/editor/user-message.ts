@@ -1,18 +1,18 @@
 import { type Theme, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import { type Markdown, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { paneWidthOf, plainRow, registerCopySurface } from "./copy-clean";
-import type { ZentuiConfig } from "./config";
-import { installPrototypePatch, removePrototypePatch } from "./prototype-patch-registry";
+import { paneWidthOf, plainRow, registerCopySurface } from "./copy-clean.ts";
+import type { ZentuiConfig } from "./config.ts";
+import { installPrototypePatch, removePrototypePatch } from "./prototype-patch-registry.ts";
 import {
 	sanitizeRenderedUserMessageLines,
 	sanitizeRenderedUserMessageText,
 	sanitizeUserMessageSourceText,
-} from "./user-message-osc";
+} from "./user-message-osc.ts";
 import {
 	renderUserMessageStyle,
 	type UserMessageStyleRenderInput,
 	userMessageStyleCacheKey,
-} from "./user-message-styles";
+} from "./user-message-styles.ts";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
@@ -20,6 +20,7 @@ const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
 
 type PatchableUserMessagePrototype = {
 	children?: unknown[];
+	describe?: () => unknown;
 };
 
 type Cleanup = () => void;
@@ -54,7 +55,7 @@ function isNativeMarkdown(renderer: unknown): boolean {
 
 const sanitizedMarkdownCache = new WeakMap<
 	object,
-	{ lines: unknown; text: string; options: unknown }
+	{ lines: unknown; sourceText: string; text: string; options: unknown }
 >();
 
 // Framing eligibility is deliberately narrower than the source trust boundary.
@@ -74,7 +75,14 @@ function withSanitizedMarkdownSources<T>(instance: unknown, render: (adapted: bo
 			if (!isRecord(options.value)) return;
 			const transform = options.value.transform;
 			if (transform !== undefined && typeof transform !== "function") return;
-			const source = sanitizeUserMessageSourceText(text.value);
+			const cached = sanitizedMarkdownCache.get(value);
+			// Source sanitization depends only on the immutable raw string, not on
+			// width, theme, options or native output invalidation. Reuse just that
+			// result; the guarded native render and its cache checks still run.
+			const source =
+				cached && cached.sourceText === text.value
+					? cached.text
+					: sanitizeUserMessageSourceText(text.value);
 			const safeOptions = {
 				...options.value,
 				...(transform
@@ -86,7 +94,6 @@ function withSanitizedMarkdownSources<T>(instance: unknown, render: (adapted: bo
 						}
 					: {}),
 			};
-			const cached = sanitizedMarkdownCache.get(value);
 			restore.push(() => {
 				Object.defineProperty(value, "text", text);
 				Object.defineProperty(value, "options", options);
@@ -95,6 +102,7 @@ function withSanitizedMarkdownSources<T>(instance: unknown, render: (adapted: bo
 				// them normally, and cleanup needs no retained component references.
 				sanitizedMarkdownCache.set(value, {
 					lines: value.cachedText === source ? value.cachedLines : undefined,
+					sourceText: text.value,
 					text: source,
 					options: options.value,
 				});
@@ -132,24 +140,61 @@ function nativeMarkdown(instance: PatchableUserMessagePrototype):
 	| {
 			renderer: Markdown;
 			text: string;
-			input: NonNullable<UserMessageStyleRenderInput["markdown"]>;
+			input: UserMessageStyleRenderInput["markdown"];
 	  }
 	| undefined {
-	const children = instance.children;
+	// OMP keeps Markdown state in ECMAScript private fields. Its public native
+	// description exposes the complete source without truncated debug previews.
+	const direct = instance.children;
+	if (
+		Array.isArray(direct) &&
+		direct.length === 1 &&
+		isRecord(direct[0]) &&
+		typeof direct[0].describe === "function" &&
+		isRecord(instance) &&
+		typeof instance.describe === "function"
+	) {
+		const bubble = Reflect.apply(instance.describe, instance, []);
+		const source = Reflect.apply(direct[0].describe, direct[0], []);
+		if (
+			!isRecord(bubble) ||
+			!isRecord(bubble.p) ||
+			bubble.p.role !== "omp.user" ||
+			!Array.isArray(bubble.c) ||
+			!bubble.c.every(
+				(child) =>
+					isRecord(child) &&
+					(child.k === "md" || (isRecord(child.p) && child.p.role === "omp.user.tools")),
+			) ||
+			!isRecord(source) ||
+			source.k !== "md" ||
+			!isRecord(source.p) ||
+			typeof source.p.text !== "string"
+		)
+			return undefined;
+		return {
+			renderer: direct[0] as unknown as Markdown,
+			text: source.p.text,
+			input: undefined,
+		};
+	}
+	const children = direct;
 	if (!Array.isArray(children) || children.length !== 1) return undefined;
-	const box = children[0];
-	if (!isRecord(box) || !Array.isArray(box.children) || box.children.length !== 1) return undefined;
-	const renderer = box.children[0];
+	// Pi >=1.0 holds the Markdown directly (it pads/colors itself); older Pi
+	// wrapped it in a Box. Accept both shapes.
+	let renderer = children[0];
+	const direct1 = isNativeMarkdown(renderer);
+	if (isRecord(renderer) && !direct1) {
+		const box = renderer;
+		if (!Array.isArray(box.children) || box.children.length !== 1) return undefined;
+		renderer = box.children[0];
+	}
 	if (!isNativeMarkdown(renderer)) return undefined;
 	// SAFETY: isNativeMarkdown verified the renderer object and its native methods.
 	const child = renderer as unknown as Record<string, unknown>;
-	if (
-		typeof child.text !== "string" ||
-		child.paddingX !== 0 ||
-		child.paddingY !== 0 ||
-		!isRecord(child.theme)
-	)
-		return undefined;
+	if (typeof child.text !== "string" || !isRecord(child.theme)) return undefined;
+	// Box-wrapped (older Pi) Markdown must be unpadded; Pi >=1.0 pads it itself.
+	if (!direct1 && (child.paddingX !== 0 || child.paddingY !== 0)) return undefined;
 	for (const key of [
 		"heading",
 		"link",
@@ -176,6 +221,8 @@ function nativeMarkdown(instance: PatchableUserMessagePrototype):
 	)
 		return undefined;
 	if (child.defaultTextStyle !== undefined && !isRecord(child.defaultTextStyle)) return undefined;
+	// Pi >=1.0 puts the message background in defaultTextStyle; Zentui frames draw their own.
+	const { bgColor: _bg, ...textStyle } = (child.defaultTextStyle ?? {}) as Record<string, unknown>;
 	return {
 		// SAFETY: native constructor/methods, text, padding and theme shape were checked above.
 		renderer: renderer as unknown as Markdown,
@@ -185,9 +232,9 @@ function nativeMarkdown(instance: PatchableUserMessagePrototype):
 			theme: child.theme as unknown as NonNullable<
 				UserMessageStyleRenderInput["markdown"]
 			>["theme"],
-			defaultTextStyle: child.defaultTextStyle as NonNullable<
-				UserMessageStyleRenderInput["markdown"]
-			>["defaultTextStyle"],
+			defaultTextStyle: (child.defaultTextStyle === undefined
+				? undefined
+				: textStyle) as NonNullable<UserMessageStyleRenderInput["markdown"]>["defaultTextStyle"],
 			options: child.options as NonNullable<UserMessageStyleRenderInput["markdown"]>["options"],
 		},
 	};
@@ -270,7 +317,9 @@ function rememberMessageCopy(
 
 function withPromptZoneMarkers(lines: string[]): string[] {
 	if (lines.length === 1) {
-		return [`${OSC133_ZONE_START}${lines[0]}${OSC133_ZONE_END}${OSC133_ZONE_FINAL}`];
+		// Pi's fullscreen renderer strips only a leading run of zone markers per row,
+		// so a single row keeps all three at its start, as Pi's native message does.
+		return [`${OSC133_ZONE_START}${OSC133_ZONE_END}${OSC133_ZONE_FINAL}${lines[0]}`];
 	}
 	const markedLines = [...lines];
 	markedLines[0] = OSC133_ZONE_START + markedLines[0];

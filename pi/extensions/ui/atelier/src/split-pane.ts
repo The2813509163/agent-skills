@@ -1,12 +1,38 @@
 import type { Component, OverlayOptions, TUI } from "@earendil-works/pi-tui";
-import { HStack, ScrollView, isViewportTUI, matchesKey } from "@earendil-works/pi-tui";
+import { compositeTuiLine, HStack, ScrollView, isViewportTUI, matchesKey, sliceByColumn } from "@earendil-works/pi-tui";
+import {
+	createImageCompositorBinding,
+	findOwnMethod,
+	type ImageCompositorBinding,
+} from "./image-compositor.js";
+import { clamp } from "./text.js";
 
 const ENABLE_MOUSE = "\u001b[?1002h\u001b[?1006h";
 const DISABLE_MOUSE = "\u001b[?1006l\u001b[?1002l";
 const SGR_MOUSE = /^\u001b\[<(\d+);(\d+);(\d+)([Mm])$/;
+// SGR button-code bits: low two bits select the button, 32 marks motion, 64 marks the wheel.
+const MOUSE_BUTTON_MASK = 3;
+const MOUSE_MOTION_BIT = 32;
+const MOUSE_WHEEL_BIT = 64;
 const PI_084_REGULAR_RENDER_ADAPTER = Symbol("pi-atelier.regular-render-adapter");
 const PI_084_FULLSCREEN_LAYOUT_ADAPTER = Symbol("pi-atelier.fullscreen-layout-adapter");
 const PI_084_FULLSCREEN_OVERLAY_ADAPTER = Symbol("pi-atelier.fullscreen-overlay-adapter");
+const PI_084_FULLSCREEN_SELECTION_ADAPTER = Symbol("pi-atelier.fullscreen-selection-adapter");
+
+type SelectionColumns = (
+	line: string,
+	row: number,
+	selection: { start: { scrollView?: unknown } },
+	minColumn?: number,
+	maxColumn?: number,
+) => { start: number; end: number };
+type ApplySelection = (screen: string[], layout?: unknown) => string[];
+
+interface FullscreenSelectionAdapterState {
+	owner: object;
+	baseSelectionColumns: SelectionColumns;
+	baseApplySelection?: ApplySelection;
+}
 
 interface RegularRenderAdapterState {
 	owner: object;
@@ -31,6 +57,10 @@ type AdaptedTui = TUI & {
 	[PI_084_REGULAR_RENDER_ADAPTER]: RegularRenderAdapterState | undefined;
 	[PI_084_FULLSCREEN_LAYOUT_ADAPTER]: FullscreenLayoutAdapterState | undefined;
 	[PI_084_FULLSCREEN_OVERLAY_ADAPTER]: FullscreenOverlayAdapterState | undefined;
+	[PI_084_FULLSCREEN_SELECTION_ADAPTER]: FullscreenSelectionAdapterState | undefined;
+	getSelectionColumns?: SelectionColumns;
+	getSelectionBounds?(): { start: { scrollView?: ScrollView } } | undefined;
+	applySelection?: ApplySelection;
 	layoutRoot?: Component;
 	setLayoutRoot(component: Component | undefined): void;
 };
@@ -44,41 +74,50 @@ export interface SgrMouseEvent {
 }
 
 export function parseSgrMouseEvent(data: string): SgrMouseEvent | undefined {
-	const match = data.match(SGR_MOUSE);
+	const match = SGR_MOUSE.exec(data);
 	if (!match) return undefined;
 	const button = Number(match[1]);
 	const x = Number(match[2]);
 	const y = Number(match[3]);
+	// Absurdly long digit runs overflow to Infinity.
 	if (![button, x, y].every(Number.isFinite) || x < 1 || y < 1) return undefined;
-	return { button, x, y, release: match[4] === "m", motion: (button & 32) !== 0 };
+	return { button, x, y, release: match[4] === "m", motion: (button & MOUSE_MOTION_BIT) !== 0 };
 }
 
 export const DEFAULT_SIDEBAR_WIDTH = 44;
 export const MIN_SIDEBAR_WIDTH = 28;
 export const MAX_SIDEBAR_WIDTH = 72;
 export const MIN_MAIN_WIDTH = 64;
+const AUTO_MAIN_WIDTH = 80;
+const AUTO_REOPEN_MARGIN = 8;
+
+export type SidebarMode = "auto" | "manual";
+export type SidebarPresentation = "shown" | "auto-collapsed" | "too-narrow" | "off";
+
+export interface SidebarStatus {
+	mode: SidebarMode;
+	enabled: boolean;
+	presentation: SidebarPresentation;
+}
 
 export interface SplitPaneControllerOptions {
-	defaultSidebarWidth?: number;
-	minSidebarWidth?: number;
-	maxSidebarWidth?: number;
-	minMainWidth?: number;
 	onError?(error: unknown): void;
 	subscribeInput?(handler: (data: string) => { consume?: boolean; data?: string } | undefined): () => void;
 	onResizeChange?(resizing: boolean): void;
+	onVisibilityChange?(): void;
 	onWarning?(message: string): void;
 }
 
 export interface SplitPaneController {
 	attach(tui: TUI): void;
 	show(): void;
+	setMode(mode: SidebarMode): void;
 	hide(): void;
+	getStatus(): SidebarStatus;
 	setSidebarWidth(width: number): void;
 	getSidebarWidth(): number;
 	isEnabled(): boolean;
-	isVisibleAtWidth(terminalWidth: number): boolean;
 	beginResize(): boolean;
-	finishResize(): void;
 	cancelResize(): void;
 	isResizing(): boolean;
 	overlayOptions(): OverlayOptions;
@@ -86,34 +125,23 @@ export interface SplitPaneController {
 	dispose(): void;
 }
 
-const finiteInteger = (value: number, fallback: number): number =>
-	Number.isFinite(value) ? Math.trunc(value) : fallback;
-
-const clamp = (value: number, minimum: number, maximum: number): number =>
-	Math.min(maximum, Math.max(minimum, value));
-
 const EMPTY_SIDEBAR_COMPONENT: Component = {
 	render: () => [],
 	invalidate() {},
 };
 
+/** Largest sidebar that leaves the main pane its minimum width. */
+const sidebarLimit = (terminalWidth: number): number =>
+	Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, terminalWidth - MIN_MAIN_WIDTH));
+
 export function createSplitPaneController(options: SplitPaneControllerOptions = {}): SplitPaneController {
-	const minimumSidebar = Math.max(
-		1,
-		finiteInteger(options.minSidebarWidth ?? MIN_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH),
-	);
-	const maximumSidebar = Math.max(
-		minimumSidebar,
-		finiteInteger(options.maxSidebarWidth ?? MAX_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH),
-	);
-	const minimumMain = Math.max(1, finiteInteger(options.minMainWidth ?? MIN_MAIN_WIDTH, MIN_MAIN_WIDTH));
-	let sidebarWidth = clamp(
-		finiteInteger(options.defaultSidebarWidth ?? DEFAULT_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH),
-		minimumSidebar,
-		maximumSidebar,
-	);
+	let sidebarWidth = DEFAULT_SIDEBAR_WIDTH;
 	let tui: TUI | undefined;
 	let enabled = false;
+	let mode: SidebarMode = "manual";
+	let autoExpanded: boolean | undefined;
+	let lastPresentation: SidebarPresentation = "off";
+	let visibilityNotificationPending = false;
 	let disposed = false;
 	let resizing = false;
 	let resizeStartWidth = sidebarWidth;
@@ -122,53 +150,46 @@ export function createSplitPaneController(options: SplitPaneControllerOptions = 
 	let resizeMouseTerminal: TUI["terminal"] | undefined;
 	let fullscreenSidebarComponent: Component | undefined;
 	let fullscreenSidebarHidden = false;
-	let controller: SplitPaneController;
+	let imageCompositor: ImageCompositorBinding | undefined;
 	const adapterOwner = {};
 
+	/** Only Pi's regular main screen renders the transcript through a replaceable `render`. */
 	const findPrototypeRender = (nextTui: TUI): TUI["render"] | undefined => {
-		let prototype = Object.getPrototypeOf(nextTui) as object | null;
-		if ((prototype as { constructor?: { name?: string } } | null)?.constructor?.name !== "TuiMainScreen") {
-			return undefined;
-		}
-		while (prototype) {
-			const descriptor = Object.getOwnPropertyDescriptor(prototype, "render");
-			if (typeof descriptor?.value === "function") return descriptor.value as TUI["render"];
-			prototype = Object.getPrototypeOf(prototype) as object | null;
-		}
-		return undefined;
+		const prototype = Object.getPrototypeOf(nextTui) as { constructor?: { name?: string } } | null;
+		if (prototype?.constructor?.name !== "TuiMainScreen") return undefined;
+		return findOwnMethod<TUI["render"]>(prototype, "render");
 	};
 
 	const findPrototypeOverlayMethods = (
 		nextTui: TUI,
 	): { showOverlay: TUI["showOverlay"]; hideOverlay: TUI["hideOverlay"] } | undefined => {
-		let prototype = Object.getPrototypeOf(nextTui) as object | null;
-		let showOverlay: TUI["showOverlay"] | undefined;
-		let hideOverlay: TUI["hideOverlay"] | undefined;
-		while (prototype && (!showOverlay || !hideOverlay)) {
-			const showDescriptor = Object.getOwnPropertyDescriptor(prototype, "showOverlay");
-			if (typeof showDescriptor?.value === "function")
-				showOverlay = showDescriptor.value as TUI["showOverlay"];
-			const hideDescriptor = Object.getOwnPropertyDescriptor(prototype, "hideOverlay");
-			if (typeof hideDescriptor?.value === "function")
-				hideOverlay = hideDescriptor.value as TUI["hideOverlay"];
-			prototype = Object.getPrototypeOf(prototype) as object | null;
-		}
+		const prototype = Object.getPrototypeOf(nextTui) as object | null;
+		const showOverlay = findOwnMethod<TUI["showOverlay"]>(prototype, "showOverlay");
+		const hideOverlay = findOwnMethod<TUI["hideOverlay"]>(prototype, "hideOverlay");
 		return showOverlay && hideOverlay ? { showOverlay, hideOverlay } : undefined;
 	};
+
+	const clearFullscreenSidebar = (): void => {
+		fullscreenSidebarComponent = undefined;
+		fullscreenSidebarHidden = false;
+	};
+
+	/** Fullscreen sidebar width at `terminalWidth`, or 0 while it is absent, hidden, or covered. */
+	const fullscreenSidebarWidth = (terminalWidth: number): number =>
+		fullscreenSidebarComponent && !fullscreenSidebarHidden ? effectiveSidebarWidth(terminalWidth) : 0;
 
 	const isPiFullscreenRenderer = (): boolean => tui?.mode === "fullscreen" && isViewportTUI(tui);
 
 	const syncRegularRenderAdapter = () => {
 		if (!tui || tui.mode !== "regular") return;
 		const adaptedTui = tui as AdaptedTui;
-		const currentState = adaptedTui[PI_084_REGULAR_RENDER_ADAPTER];
-		if (currentState?.owner === adapterOwner) return;
-		// Another Atelier instance owns this renderer; do not stack private adapters.
-		if (currentState) return;
+		// Installed already, or another Atelier instance owns this renderer; do not stack adapters.
+		if (adaptedTui[PI_084_REGULAR_RENDER_ADAPTER]) return;
 		const baseRender = findPrototypeRender(tui);
 		if (!baseRender) return;
 		adaptedTui[PI_084_REGULAR_RENDER_ADAPTER] = { owner: adapterOwner, baseRender };
 		adaptedTui.render = (width: number) => {
+			reconcileResizeWidth(width);
 			const sidebar = effectiveSidebarWidth(width);
 			return baseRender.call(tui, sidebar > 0 ? width - sidebar : width);
 		};
@@ -195,7 +216,7 @@ export function createSplitPaneController(options: SplitPaneControllerOptions = 
 			return { handled: true };
 		};
 		return new HStack([
-			{ component: originalRoot, basis: 0, grow: 1, shrink: 1, minSize: minimumMain },
+			{ component: originalRoot, basis: 0, grow: 1, shrink: 1, minSize: MIN_MAIN_WIDTH },
 			{
 				// A non-primary viewport gives native Pi selection its own coordinate/text bounds.
 				// Keep the transcript primary: keyboard scrolling/search continue to target the chat.
@@ -203,13 +224,9 @@ export function createSplitPaneController(options: SplitPaneControllerOptions = 
 				basis: sidebarWidth,
 				grow: 0,
 				shrink: 1,
-				minSize: minimumSidebar,
-				maxSize: maximumSidebar,
-				visible: ({ width }) => {
-					reconcileResizeWidth(width);
-					syncOverlayWidth(width);
-					return !fullscreenSidebarHidden && visibleAt(width);
-				},
+				minSize: MIN_SIDEBAR_WIDTH,
+				maxSize: MAX_SIDEBAR_WIDTH,
+				visible: ({ width }) => observeWidth(width) && !fullscreenSidebarHidden,
 			},
 		]);
 	};
@@ -257,12 +274,65 @@ export function createSplitPaneController(options: SplitPaneControllerOptions = 
 		adaptedTui[PI_084_FULLSCREEN_LAYOUT_ADAPTER] = undefined;
 	};
 
+	const syncFullscreenSelectionAdapter = () => {
+		if (!isPiFullscreenRenderer() || !tui) return;
+		const adaptedTui = tui as AdaptedTui;
+		if (adaptedTui[PI_084_FULLSCREEN_SELECTION_ADAPTER]) return;
+		// Read the concrete methods, not forwarding functions from Pi's stable proxy.
+		const prototype = Object.getPrototypeOf(tui) as object | null;
+		const baseSelectionColumns = findOwnMethod<SelectionColumns>(prototype, "getSelectionColumns");
+		if (!baseSelectionColumns) return;
+		const baseApplySelection = findOwnMethod<ApplySelection>(prototype, "applySelection");
+		adaptedTui[PI_084_FULLSCREEN_SELECTION_ADAPTER] = {
+			owner: adapterOwner,
+			baseSelectionColumns,
+			...(baseApplySelection ? { baseApplySelection } : {}),
+		};
+		adaptedTui.getSelectionColumns = function (line, row, selection, minColumn, maxColumn) {
+			const columns = baseSelectionColumns.call(this, line, row, selection, minColumn, maxColumn);
+			// Pi falls back to screen selection when a drag starts outside a ScrollView
+			// (e.g. the editor). This method serves both highlighting and OSC 52 copying.
+			if (selection.start.scrollView || this.hasOverlay()) return columns;
+			const width = this.terminal.columns;
+			const sidebar = fullscreenSidebarWidth(width);
+			if (sidebar <= 0) return columns;
+			const mainWidth = width - sidebar;
+			return { start: Math.min(columns.start, mainWidth), end: Math.min(columns.end, mainWidth) };
+		};
+		if (!baseApplySelection) return;
+		adaptedTui.applySelection = function (screen, layout) {
+			const selected = baseApplySelection.call(this, screen, layout);
+			if (this.getSelectionBounds?.()?.start.scrollView?.primary === false) return selected;
+			const width = this.terminal.columns;
+			const sidebar = fullscreenSidebarWidth(width);
+			if (sidebar <= 0 || this.hasOverlay()) return selected;
+			const mainWidth = width - sidebar;
+			return selected.map((line, row) => {
+				const original = screen[row];
+				if (original === undefined || line === original) return line;
+				// Pi's selection slicing can replay the transcript background AFTER the
+				// pane reset. Keep its highlighted main pane, but restore the original
+				// sidebar through the compositor's state-aware suffix extraction.
+				return compositeTuiLine(original, sliceByColumn(line, 0, mainWidth, true), 0, mainWidth, width);
+			});
+		};
+	};
+
+	const restoreFullscreenSelectionAdapter = () => {
+		if (!tui) return;
+		const adaptedTui = tui as AdaptedTui;
+		const state = adaptedTui[PI_084_FULLSCREEN_SELECTION_ADAPTER];
+		if (state?.owner !== adapterOwner) return;
+		adaptedTui.getSelectionColumns = state.baseSelectionColumns;
+		if (state.baseApplySelection) adaptedTui.applySelection = state.baseApplySelection;
+		adaptedTui[PI_084_FULLSCREEN_SELECTION_ADAPTER] = undefined;
+	};
+
 	const syncFullscreenOverlayAdapter = () => {
 		if (!isPiFullscreenRenderer() || !tui) return;
 		const adaptedTui = tui as AdaptedTui;
-		const currentState = adaptedTui[PI_084_FULLSCREEN_OVERLAY_ADAPTER];
-		if (currentState?.owner === adapterOwner) return;
-		if (currentState) return;
+		// Installed already, or owned by another Atelier instance.
+		if (adaptedTui[PI_084_FULLSCREEN_OVERLAY_ADAPTER]) return;
 		const baseMethods = findPrototypeOverlayMethods(tui);
 		if (!baseMethods) return;
 		const { showOverlay: baseShowOverlay, hideOverlay: baseHideOverlay } = baseMethods;
@@ -320,8 +390,7 @@ export function createSplitPaneController(options: SplitPaneControllerOptions = 
 			base.call(tui);
 			if (!hadVisibleOverlay && fullscreenSidebarComponent) {
 				enabled = false;
-				fullscreenSidebarComponent = undefined;
-				fullscreenSidebarHidden = false;
+				clearFullscreenSidebar();
 				syncFullscreenLayoutAdapter();
 				tui?.requestRender();
 			}
@@ -354,24 +423,65 @@ export function createSplitPaneController(options: SplitPaneControllerOptions = 
 		for (const listener of existingListeners) listeners.add(listener);
 	};
 
-	const safely = (action: () => unknown) => {
+	const safely = (action: () => void): void => {
 		try {
-			const result = action();
-			if (result && typeof (result as PromiseLike<unknown>).then === "function") {
-				void Promise.resolve(result).catch(() => undefined);
-			}
+			action();
 		} catch {
 			// Cleanup and error reporting are best effort; continue with remaining actions.
 		}
 	};
 
-	const visibleAt = (terminalWidth: number): boolean =>
-		enabled && Number.isFinite(terminalWidth) && terminalWidth >= minimumMain + minimumSidebar;
-
-	const effectiveSidebarWidth = (terminalWidth: number): number => {
-		if (!visibleAt(terminalWidth)) return 0;
-		return clamp(sidebarWidth, minimumSidebar, Math.min(maximumSidebar, terminalWidth - minimumMain));
+	// All renderers and presentation consumers resolve the outer terminal width here.
+	// Invalid resize dimensions must not change the automatic expansion history.
+	const resolveLayout = (terminalWidth: number) => {
+		// Fullscreen layout normalizes invalid widths to 1; retain the raw terminal validity.
+		const reportedWidth = tui?.terminal.columns ?? terminalWidth;
+		const validWidth =
+			Number.isFinite(terminalWidth) &&
+			terminalWidth > 0 &&
+			Number.isFinite(reportedWidth) &&
+			reportedWidth > 0;
+		if (enabled && mode === "auto" && validWidth) {
+			const threshold = AUTO_MAIN_WIDTH + sidebarWidth;
+			autoExpanded = terminalWidth >= threshold + (autoExpanded === false ? AUTO_REOPEN_MARGIN : 0);
+		}
+		const presentation: SidebarPresentation = !enabled
+			? "off"
+			: !validWidth || terminalWidth < MIN_MAIN_WIDTH + MIN_SIDEBAR_WIDTH
+				? "too-narrow"
+				: mode === "auto" && !autoExpanded
+					? "auto-collapsed"
+					: "shown";
+		const effectiveWidth =
+			presentation === "shown"
+				? clamp(sidebarWidth, MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, terminalWidth - MIN_MAIN_WIDTH))
+				: 0;
+		if (presentation !== lastPresentation) {
+			lastPresentation = presentation;
+			// Rendering may discover a resize. Notify after the render stack unwinds.
+			if (!visibilityNotificationPending) {
+				visibilityNotificationPending = true;
+				queueMicrotask(() => {
+					visibilityNotificationPending = false;
+					if (!disposed) safely(() => options.onVisibilityChange?.());
+				});
+			}
+		}
+		return { presentation, sidebarWidth: effectiveWidth, mainWidth: terminalWidth - effectiveWidth };
 	};
+
+	/**
+	 * Pi asks both layouts whether the sidebar is visible on every frame; use that
+	 * to follow terminal resizes before answering.
+	 */
+	const observeWidth = (terminalWidth: number): boolean => {
+		reconcileResizeWidth(terminalWidth);
+		syncOverlayWidth(terminalWidth);
+		return visibleAt(terminalWidth);
+	};
+
+	const visibleAt = (terminalWidth: number): boolean => resolveLayout(terminalWidth).presentation === "shown";
+	const effectiveSidebarWidth = (terminalWidth: number): number => resolveLayout(terminalWidth).sidebarWidth;
 
 	const overlayLayout: OverlayOptions = {
 		anchor: "top-right",
@@ -379,11 +489,7 @@ export function createSplitPaneController(options: SplitPaneControllerOptions = 
 		maxHeight: "100%",
 		margin: 0,
 		nonCapturing: true,
-		visible: (terminalWidth) => {
-			reconcileResizeWidth(terminalWidth);
-			syncOverlayWidth(terminalWidth);
-			return visibleAt(terminalWidth);
-		},
+		visible: observeWidth,
 	};
 
 	const syncOverlayWidth = (terminalWidth = tui?.terminal.columns) => {
@@ -392,21 +498,26 @@ export function createSplitPaneController(options: SplitPaneControllerOptions = 
 	};
 
 	const requestRender = () => {
+		imageCompositor?.sync();
 		syncRegularRenderAdapter();
 		syncFullscreenLayoutAdapter();
 		syncFullscreenOverlayAdapter();
+		syncFullscreenSelectionAdapter();
 		tui?.requestRender();
 	};
 
 	const stopResize = (restore: boolean) => {
 		if (!resizing && !resizeMouseTerminal && !unsubscribeInput) return;
-		if (restore) sidebarWidth = resizeStartWidth;
+		if (restore) {
+			sidebarWidth = resizeStartWidth;
+		}
+		// Clear first: geometry reconciliation can run during layout updates.
+		resizing = false;
 		syncOverlayWidth();
 		syncFullscreenLayoutAdapter();
 		const mouseTerminal = resizeMouseTerminal;
 		const unsubscribe = unsubscribeInput;
 		dragging = false;
-		resizing = false;
 		resizeMouseTerminal = undefined;
 		unsubscribeInput = undefined;
 		if (mouseTerminal) safely(() => mouseTerminal.write(DISABLE_MOUSE));
@@ -421,8 +532,7 @@ export function createSplitPaneController(options: SplitPaneControllerOptions = 
 			stopResize(true);
 			return;
 		}
-		const effectiveMax = Math.min(maximumSidebar, terminalWidth - minimumMain);
-		sidebarWidth = clamp(sidebarWidth, minimumSidebar, Math.max(minimumSidebar, effectiveMax));
+		// A terminal resize clamps presentation only, never the preferred width.
 	};
 
 	const attach = (nextTui: TUI) => {
@@ -430,50 +540,57 @@ export function createSplitPaneController(options: SplitPaneControllerOptions = 
 		if (tui === nextTui) return;
 		if (tui) throw new Error("Split pane is already attached to another TUI");
 		tui = nextTui;
+		imageCompositor = createImageCompositorBinding(nextTui, (width) => {
+			const sidebar = isPiFullscreenRenderer() ? fullscreenSidebarWidth(width) : 0;
+			if (sidebar === 0 || !fullscreenSidebarComponent) return undefined;
+			return { column: width - sidebar, width: sidebar, lines: fullscreenSidebarComponent.render(sidebar) };
+		});
 		reconcileResizeWidth(nextTui.terminal.columns);
 		syncOverlayWidth(nextTui.terminal.columns);
-		syncRegularRenderAdapter();
-		syncFullscreenLayoutAdapter();
-		syncFullscreenOverlayAdapter();
 		requestRender();
 	};
+
+	const setSidebarWidth = (width: number): void => {
+		const next = clamp(
+			Number.isFinite(width) ? Math.trunc(width) : sidebarWidth,
+			MIN_SIDEBAR_WIDTH,
+			resizing && tui ? sidebarLimit(tui.terminal.columns) : MAX_SIDEBAR_WIDTH,
+		);
+		if (next === sidebarWidth) return;
+		sidebarWidth = next;
+		syncOverlayWidth();
+		requestRender();
+	};
+
+	/** Keyboard steps: the sidebar grows to the left. */
+	const RESIZE_KEYS = [
+		["shift+left", 4],
+		["shift+right", -4],
+		["left", 1],
+		["right", -1],
+	] as const;
 
 	const handleResizeInput = (data: string): { consume?: boolean; data?: string } | undefined => {
 		const mouse = parseSgrMouseEvent(data);
 		if (mouse) {
 			if (mouse.release) {
 				if (dragging) stopResize(false);
-				return { consume: true };
-			}
-			if (!mouse.motion && (mouse.button & 3) === 0 && (mouse.button & 64) === 0) {
-				const dividerX = (tui?.terminal.columns ?? 0) - sidebarWidth + 1;
+			} else if (
+				!mouse.motion &&
+				(mouse.button & MOUSE_BUTTON_MASK) === 0 &&
+				(mouse.button & MOUSE_WHEEL_BIT) === 0
+			) {
+				const dividerX = resolveLayout(tui?.terminal.columns ?? 0).mainWidth + 1;
 				if (Math.abs(mouse.x - dividerX) <= 1) dragging = true;
-				return { consume: true };
-			}
-			if (mouse.motion && dragging && tui) {
+			} else if (mouse.motion && dragging && tui) {
 				const proposed = tui.terminal.columns - mouse.x + 1;
-				const effectiveMax = Math.min(maximumSidebar, tui.terminal.columns - minimumMain);
-				sidebarWidth = clamp(proposed, minimumSidebar, Math.max(minimumSidebar, effectiveMax));
-				syncOverlayWidth();
-				syncFullscreenLayoutAdapter();
-				requestRender();
+				setSidebarWidth(proposed);
 			}
 			return { consume: true };
 		}
-		if (matchesKey(data, "shift+left")) {
-			controller.setSidebarWidth(sidebarWidth + 4);
-			return { consume: true };
-		}
-		if (matchesKey(data, "shift+right")) {
-			controller.setSidebarWidth(sidebarWidth - 4);
-			return { consume: true };
-		}
-		if (matchesKey(data, "left")) {
-			controller.setSidebarWidth(sidebarWidth + 1);
-			return { consume: true };
-		}
-		if (matchesKey(data, "right")) {
-			controller.setSidebarWidth(sidebarWidth - 1);
+		const step = RESIZE_KEYS.find(([key]) => matchesKey(data, key))?.[1];
+		if (step !== undefined) {
+			setSidebarWidth(effectiveSidebarWidth(tui?.terminal.columns ?? 0) + step);
 			return { consume: true };
 		}
 		if (matchesKey(data, "enter")) {
@@ -487,36 +604,44 @@ export function createSplitPaneController(options: SplitPaneControllerOptions = 
 		return undefined;
 	};
 
-	controller = {
+	return {
 		attach,
 		show() {
 			if (disposed || enabled) return;
+			autoExpanded = undefined;
 			enabled = true;
 			syncOverlayWidth();
-			syncRegularRenderAdapter();
-			syncFullscreenLayoutAdapter();
-			syncFullscreenOverlayAdapter();
 			requestRender();
 		},
 		hide() {
 			stopResize(true);
 			if (!enabled) return;
 			enabled = false;
-			fullscreenSidebarComponent = undefined;
-			fullscreenSidebarHidden = false;
+			clearFullscreenSidebar();
+			// Remove the sidebar even if subsequent compositor reconciliation fails.
 			syncFullscreenLayoutAdapter();
 			requestRender();
 		},
-		setSidebarWidth(width) {
-			const next = clamp(finiteInteger(width, sidebarWidth), minimumSidebar, maximumSidebar);
-			if (next === sidebarWidth) return;
-			sidebarWidth = next;
+		setMode(nextMode) {
+			if (disposed) return;
+			stopResize(true);
+			mode = nextMode;
+			autoExpanded = undefined;
 			syncOverlayWidth();
-			syncFullscreenLayoutAdapter();
 			requestRender();
 		},
+		getStatus: () => ({
+			mode,
+			enabled,
+			presentation: resolveLayout(tui?.terminal.columns ?? 0).presentation,
+		}),
+		setSidebarWidth,
 		getSidebarWidth: () => sidebarWidth,
 		beginResize() {
+			if (mode === "auto") {
+				options.onWarning?.("Switch to Manual mode with /atelier sidebar manual before resizing");
+				return false;
+			}
 			if (resizing) return true;
 			if (!tui || !enabled) {
 				options.onWarning?.("Atelier sidebar is not ready to resize");
@@ -530,12 +655,11 @@ export function createSplitPaneController(options: SplitPaneControllerOptions = 
 				options.onWarning?.("Terminal input is unavailable for sidebar resizing");
 				return false;
 			}
-			sidebarWidth = effectiveSidebarWidth(tui.terminal.columns);
+			resizeStartWidth = sidebarWidth;
+			resizing = true;
 			syncOverlayWidth();
 			syncFullscreenLayoutAdapter();
-			resizeStartWidth = sidebarWidth;
 			dragging = false;
-			resizing = true;
 			try {
 				unsubscribeInput = options.subscribeInput(handleResizeInput);
 				prioritizeFullscreenResizeInput(handleResizeInput);
@@ -550,11 +674,9 @@ export function createSplitPaneController(options: SplitPaneControllerOptions = 
 				return false;
 			}
 		},
-		finishResize: () => stopResize(false),
 		cancelResize: () => stopResize(true),
 		isResizing: () => resizing,
 		isEnabled: () => enabled,
-		isVisibleAtWidth: visibleAt,
 		overlayOptions: () => overlayLayout,
 		requestRender,
 		dispose() {
@@ -562,14 +684,15 @@ export function createSplitPaneController(options: SplitPaneControllerOptions = 
 			stopResize(true);
 			disposed = true;
 			enabled = false;
-			fullscreenSidebarComponent = undefined;
-			fullscreenSidebarHidden = false;
+			clearFullscreenSidebar();
 			restoreRegularRenderAdapter();
 			restoreFullscreenOverlayAdapter();
+			restoreFullscreenSelectionAdapter();
 			restoreFullscreenLayoutAdapter();
+			imageCompositor?.dispose();
+			imageCompositor = undefined;
 			tui?.requestRender();
 			tui = undefined;
 		},
 	};
-	return controller;
 }

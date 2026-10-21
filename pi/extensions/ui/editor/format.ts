@@ -8,13 +8,13 @@ import type {
 	ContextThresholds,
 	GitBranchMaxLength,
 	PathDisplayMode,
-} from "./config";
-import type { GitCommitInfo, GitMetricsInfo } from "./git";
-import type { IconMode } from "./icons";
-import { resolveOsIcon, resolvePackageIcon, resolveRuntimeSymbol } from "./icons";
-import type { PackageVersionResult } from "./package-version";
-import type { RuntimeInfo } from "./runtime";
-import { renderStyleForSource } from "./style";
+} from "./config.ts";
+import type { GitCommitInfo, GitMetricsInfo } from "./git.ts";
+import type { IconMode } from "./icons.ts";
+import { resolveOsIcon, resolvePackageIcon, resolveRuntimeSymbol } from "./icons.ts";
+import type { PackageVersionResult } from "./package-version.ts";
+import type { RuntimeInfo } from "./runtime.ts";
+import { renderStyleForSource } from "./style.ts";
 
 /**
  * Classify a prompt input as normal (`""`), a `!`-prefixed shell command
@@ -295,6 +295,74 @@ export function getUsageTotals(ctx: ExtensionContext): UsageTotals {
 	return totals;
 }
 
+const EMPTY_USAGE_TOTALS: UsageTotals = Object.freeze({
+	input: 0,
+	output: 0,
+	cacheRead: 0,
+	cacheWrite: 0,
+	cost: 0,
+});
+
+/**
+ * Production-only snapshot for Pi's append-only session contract. The owner must invalidate
+ * at message/agent completion, settlement, tree/compaction and session boundaries. Leaf IDs
+ * supplement those events; they are NOT a full-history revision. Silent same-leaf in-place
+ * edits outside those boundaries require the generic mutation-safe getUsageTotals instead.
+ */
+export class EventUsageTotalsController {
+	private snapshot?: {
+		manager: ExtensionContext["sessionManager"];
+		sessionId: string;
+		leafId: string | null;
+		totals: UsageTotals;
+	};
+
+	invalidate(): void {
+		this.snapshot = undefined;
+	}
+
+	resolve(ctx: ExtensionContext, demanded: boolean): UsageTotals {
+		if (!demanded) {
+			this.invalidate();
+			return EMPTY_USAGE_TOTALS;
+		}
+		const manager = ctx.sessionManager;
+		let identity: { sessionId: string; leafId: string | null } | undefined;
+		try {
+			if (
+				typeof manager.getEntries === "function" &&
+				typeof manager.getSessionId === "function" &&
+				typeof manager.getLeafId === "function"
+			) {
+				const sessionId = manager.getSessionId();
+				const leafId = manager.getLeafId();
+				if (
+					typeof sessionId === "string" &&
+					sessionId.length > 0 &&
+					(leafId === null || (typeof leafId === "string" && leafId.length > 0))
+				)
+					identity = { sessionId, leafId };
+			}
+		} catch {
+			// Older or unsupported hosts retain the generic mutation-safe path.
+		}
+		if (!identity) {
+			this.invalidate();
+			return getUsageTotals(ctx);
+		}
+		if (
+			this.snapshot?.manager === manager &&
+			this.snapshot.sessionId === identity.sessionId &&
+			this.snapshot.leafId === identity.leafId
+		)
+			return this.snapshot.totals;
+		this.invalidate();
+		const totals = computeUsageTotals(manager.getEntries() as readonly SessionEntry[]);
+		this.snapshot = { manager, ...identity, totals };
+		return totals;
+	}
+}
+
 export function buildCacheReadLabel(cacheRead: number): string {
 	return cacheRead > 0 ? `R${formatCount(cacheRead)}` : "";
 }
@@ -397,12 +465,22 @@ export function resolveContextUsage(
 	ctx: Pick<ExtensionContext, "model" | "getContextUsage">,
 	live?: { tokens: number },
 ): ContextUsageSnapshot {
+	const liveTokens =
+		live && Number.isFinite(live.tokens) && live.tokens >= 0 ? live.tokens : undefined;
+	const modelWindow = ctx.model?.contextWindow;
+	// Live provider usage is authoritative; avoid rebuilding the host session projection.
+	if (liveTokens !== undefined && modelWindow && Number.isFinite(modelWindow) && modelWindow > 0) {
+		return { percent: (liveTokens / modelWindow) * 100, contextWindow: modelWindow };
+	}
 	const usage = ctx.getContextUsage();
-	const contextWindow = ctx.model?.contextWindow ?? usage?.contextWindow;
+	const contextWindow = modelWindow ?? usage?.contextWindow;
 	return {
 		percent:
-			live && contextWindow && contextWindow > 0
-				? (live.tokens / contextWindow) * 100
+			liveTokens !== undefined &&
+			contextWindow &&
+			Number.isFinite(contextWindow) &&
+			contextWindow > 0
+				? (liveTokens / contextWindow) * 100
 				: (usage?.percent ?? undefined),
 		contextWindow,
 	};
@@ -572,6 +650,7 @@ export function formatOsLabel(
 	configuredIcon: string,
 	mode: IconMode = "auto",
 	platform: string = process.platform,
+	osOverridden = false,
 ): string {
-	return resolveOsIcon(configuredIcon, mode, platform);
+	return resolveOsIcon(configuredIcon, mode, platform, process.env, osOverridden);
 }

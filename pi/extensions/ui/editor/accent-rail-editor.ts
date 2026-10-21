@@ -1,16 +1,16 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { CodexQuota } from "./codex-quota";
-import { renderCodexQuota } from "./codex-quota-display";
+import type { CodexQuota } from "./codex-quota.ts";
+import { renderCodexQuota } from "./codex-quota-display.ts";
 import {
 	applyOwnedSurfaceBackground,
 	fillTerminalLine,
 	renderCompletionRows,
-} from "./completion-menu";
-import { componentColor } from "./component-colors";
-import type { ZentuiConfig } from "./config";
-import { sanitizeEditorMetadataText } from "./editor-metadata-format";
-import { renderStyleForSourceOrFallback, type SourceStyleFallback } from "./style";
+} from "./completion-menu.ts";
+import { componentColor } from "./component-colors.ts";
+import type { ZentuiConfig } from "./config.ts";
+import { resolveAccentRailGlyph } from "./rail-glyph.ts";
+import { renderStyleForSourceOrFallback, type SourceStyleFallback } from "./style.ts";
 
 export const ACCENT_RAIL_CHROME_WIDTH = 2;
 
@@ -40,12 +40,7 @@ function clampLines(lines: string[], width: number): string[] {
 }
 
 function selectedRail(config: ZentuiConfig): string {
-	const style = config.components.editor.styles["accent-rail"];
-	const fallback = config.icons.mode === "ascii" ? "|" : "▎";
-	const configured = config.icons.mode === "ascii" ? style.asciiRail : style.rail;
-	const sanitized = sanitizeEditorMetadataText(configured);
-	const glyph = truncateToWidth(sanitized, 1, "");
-	return visibleWidth(glyph) === 1 ? glyph : fallback;
+	return resolveAccentRailGlyph(config);
 }
 
 /** 左侧装饰的纯文本前缀（渲染用的 rail 带颜色码，比对时要先去 ANSI）。 */

@@ -14,7 +14,7 @@ if (!process.execArgv.includes("--experimental-transform-types")) {
 }
 import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -34,7 +34,7 @@ function load(rel) {
 		.replace(/^import \{[^}]*\} from "@earendil-works\/pi-coding-agent";\r?\n/gm, "")
 		.replace(/from "@earendil-works\/pi-tui"/g, `from "${piTui}"`)
 		.replace(/getAgentDir\(\)/g, "process.env.AGENT_DIR");
-	const file = join(dir, rel.split("/").pop().replace(/\.ts$/, "") + ".ts");
+	const file = join(dir, `${rel.split("/").pop().replace(/\.ts$/, "")}.ts`);
 	writeFileSync(file, source);
 	return import(pathToFileURL(file).href);
 }
@@ -43,10 +43,11 @@ const { cleanCopiedText, clearCopySurfaces, composerSurfaceRows, registerCopySur
 	await load("pi/extensions/ui/editor/copy-clean.ts");
 
 /**
- * 把 ui.ts 的依赖闭包摊平拷到仓内的临时目录(留在仓内才能解析 @earendil-works/pi-tui),
+ * 把 ui.ts 的依赖闭包按原目录拷到仓内临时目录,避免不同子目录的同名文件冲突。
  * 把相对导入改成显式 .ts、把 getAgentDir 换成环境变量,就能在 Node 里直接加载真扩展。
  */
 const closureDir = join(root, "tests", ".copy-clean-closure");
+const editorDir = join(root, "pi", "extensions", "ui", "editor");
 rmSync(closureDir, { recursive: true, force: true });
 process.on("exit", () => rmSync(closureDir, { recursive: true, force: true }));
 
@@ -59,8 +60,10 @@ async function loadEditorClosure(entry) {
 		if (seen.has(file)) continue;
 		seen.add(file);
 		const original = readFileSync(file, "utf8");
+		const destination = join(closureDir, relative(editorDir, file));
+		mkdirSync(dirname(destination), { recursive: true });
 		writeFileSync(
-			join(closureDir, basename(file)),
+			destination,
 			original
 				// Node 会保留 inline type 的空导入;临时模块改为纯类型导入,不加载真实 Pi host。
 				.replace(/^import \{ type Theme \} from ("@earendil-works\/pi-coding-agent");$/gm, 'import type { Theme } from $1;')
@@ -70,7 +73,7 @@ async function loadEditorClosure(entry) {
 				)
 				.replace(
 					/from "(\.\.?\/[^"]+)"/g,
-					(_match, spec) => `from "./${basename(spec.replace(/\.js$/, ""))}.ts"`,
+					(_match, spec) => `from "${spec.replace(/\.(?:js|ts)$/, "")}.ts"`,
 				),
 		);
 		for (const match of original.matchAll(/from "(\.\.?\/[^"]+)"/g)) {
@@ -78,12 +81,12 @@ async function loadEditorClosure(entry) {
 			queue.push(
 				join(
 					dirname(file),
-					spec.endsWith(".js") ? spec.replace(/\.js$/, ".ts") : `${spec}.ts`,
+					`${spec.replace(/\.(?:js|ts)$/, "")}.ts`,
 				),
 			);
 		}
 	}
-	return import(pathToFileURL(join(closureDir, basename(entry))).href);
+	return import(pathToFileURL(join(closureDir, relative(editorDir, join(root, entry)))).href);
 }
 
 const CHROME = "\u2502 ";
@@ -378,7 +381,7 @@ for (const text of TEXTS) {
 				...baseConfig,
 				components: {
 					...baseConfig.components,
-					editor: { ...baseConfig.components.editor, style },
+					editor: { ...baseConfig.components.editor, style, rail: chrome.trimEnd() },
 				},
 			};
 			const wrapped = new closure.WrappedPolishedEditor(

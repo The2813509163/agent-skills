@@ -482,8 +482,9 @@ Pi 原生 MCP（>= 0.99.0）：全局 `~/.pi/agent/mcp.json`，可信项目 `.pi
 
 | 部分 | 内容 |
 |---|---|
-| 布局 / 侧栏 | 纳管的 Atelier 0.10.1 |
-| 编辑器 / 消息视觉 | Zentui 0.24.0 |
+| 布局 / 侧栏 | 纳管的 Atelier 0.16.0 |
+| 编辑器 / 消息视觉 | Zentui 0.32.0 |
+| 工具 / 思考分组 | Pretty TUI 0.3.0，clean 模式累计一轮的思考与工具调用 |
 | 功能 | LF 提交修复、TPS、HΣ/H₁、R/W、Magic Context `todowrite` 侧栏 |
 | 配置 | `agent-skills-ui.json`、`agent-skills-editor.json` |
 | 命令 | `/ui`、`/ui sidebar` |

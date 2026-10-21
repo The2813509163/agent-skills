@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { isRecord, sanitizeInline } from "./text.js";
 import type {
-	ConfigurationSource,
+	BuiltinSidebarPanelId,
 	ContributedSidebarPanelId,
 	SidebarPanelId,
 	SidebarPanelLayout,
@@ -46,6 +47,7 @@ export const BUILTIN_SIDEBAR_PANEL_IDS = [
 	"context",
 	"workspace",
 	"usage",
+	"subagents",
 	"tools",
 ] as const;
 
@@ -57,38 +59,39 @@ export const DEFAULT_SIDEBAR_PANEL_LAYOUT: SidebarPanelLayout = BUILTIN_SIDEBAR_
 const BUILTIN_IDS = new Set<string>(BUILTIN_SIDEBAR_PANEL_IDS);
 // Use a strict end-of-input assertion; JavaScript's `$` also matches before a final line terminator.
 const NAMESPACED_ID = /^[a-z][a-z0-9_-]*:[a-z][a-z0-9_-]*(?![\s\S])/;
-const PANEL_ROLES = new Set([
+const PANEL_ROLE_VALUES = [
 	"primary",
 	"accent",
 	"muted",
 	"dim",
 	"ready",
 	"working",
+	"success",
+	"caution",
 	"warning",
 	"error",
 	"input",
 	"output",
 	"cache",
 	"context",
-]);
+] as const;
+const PANEL_ROLES = new Set<string>(PANEL_ROLE_VALUES);
 
-export type SidebarPanelRole =
-	| "primary"
-	| "accent"
-	| "muted"
-	| "dim"
-	| "ready"
-	| "working"
-	| "warning"
-	| "error"
-	| "input"
-	| "output"
-	| "cache"
-	| "context";
+export type SidebarPanelRole = (typeof PANEL_ROLE_VALUES)[number];
 
 export interface SidebarPanelRow {
 	text: string;
 	role?: SidebarPanelRole;
+}
+
+/** Responsive label/value rows, laid out by Atelier at the current sidebar width. */
+export interface SidebarPanelKeyValueRow {
+	label: string;
+	value: string;
+	labelRole?: SidebarPanelRole;
+	valueRole?: SidebarPanelRole;
+	/** Optional finite fraction from 0 to 1, inclusive. Invalid values are ignored. */
+	progress?: number;
 }
 
 /** Structured, presentation-only data accepted from another extension. */
@@ -96,6 +99,8 @@ export interface SidebarPanelContribution {
 	id: ContributedSidebarPanelId;
 	title: string;
 	rows: readonly (string | SidebarPanelRow)[];
+	/** Optional preferred representation; rows remain the compatibility fallback. */
+	keyValues?: readonly SidebarPanelKeyValueRow[];
 	role?: SidebarPanelRole;
 }
 
@@ -103,16 +108,15 @@ interface SanitizedSidebarPanelContribution {
 	id: ContributedSidebarPanelId;
 	title: string;
 	rows: SidebarPanelRow[];
+	keyValues?: SidebarPanelKeyValueRow[];
 	role?: SidebarPanelRole;
 }
 
 export interface SidebarPanelData extends Omit<SidebarPanelContribution, "rows"> {
 	rows: readonly SidebarPanelRow[];
-	available: true;
 	source: string;
 }
 
-export type SidebarPanelLayoutSource = ConfigurationSource;
 export type { SidebarPanelLayout, SidebarPanelLayoutEntry };
 
 export interface SidebarPanelRegisterEvent {
@@ -170,10 +174,6 @@ export interface SidebarPanelRegistryOptions {
 	instanceId?: string;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 export function isSidebarPanelContributionId(value: unknown): value is ContributedSidebarPanelId {
 	return typeof value === "string" && value.length <= SIDEBAR_PANEL_MAX_ID_CHARS && NAMESPACED_ID.test(value);
 }
@@ -181,6 +181,9 @@ export function isSidebarPanelContributionId(value: unknown): value is Contribut
 export function isSidebarPanelId(value: unknown): value is SidebarPanelId {
 	return typeof value === "string" && (BUILTIN_IDS.has(value) || isSidebarPanelContributionId(value));
 }
+
+export const isBuiltinSidebarPanelId = (value: unknown): value is BuiltinSidebarPanelId =>
+	typeof value === "string" && BUILTIN_IDS.has(value);
 
 /** Validate the source name retained with a contributed panel and its events. */
 export function isSidebarPanelSource(value: unknown): value is string {
@@ -210,16 +213,8 @@ export function isSidebarPanelRequestId(value: unknown): value is string {
 	return true;
 }
 
-function isSafeRevision(value: unknown): value is number {
-	return typeof value === "number" && Number.isSafeInteger(value);
-}
-
 export function isSidebarPanelRole(value: unknown): value is SidebarPanelRole {
 	return typeof value === "string" && PANEL_ROLES.has(value);
-}
-
-export function cloneSidebarPanelLayout(layout: readonly SidebarPanelLayoutEntry[]): SidebarPanelLayout {
-	return layout.map((entry) => ({ id: entry.id, visible: entry.visible }));
 }
 
 /**
@@ -229,14 +224,14 @@ export function cloneSidebarPanelLayout(layout: readonly SidebarPanelLayoutEntry
  * appended here and therefore remain hidden until explicitly enabled.
  */
 export function normalizeSidebarPanelLayout(
-	entries: readonly SidebarPanelLayoutEntry[],
+	entries: readonly { id: unknown; visible: boolean }[],
 	warnings: string[] = [],
 ): SidebarPanelLayout {
 	const normalized: SidebarPanelLayout = [];
 	const seen = new Set<string>();
 	for (const entry of entries) {
-		if (!entry || !isSidebarPanelId(entry.id)) {
-			warnings.push(`Unknown sidebar panel: ${String(entry?.id)}`);
+		if (!isSidebarPanelId(entry.id)) {
+			warnings.push(`Unknown sidebar panel: ${String(entry.id)}`);
 			continue;
 		}
 		if (seen.has(entry.id)) {
@@ -244,95 +239,92 @@ export function normalizeSidebarPanelLayout(
 			continue;
 		}
 		seen.add(entry.id);
-		normalized.push({ id: entry.id, visible: entry.visible === true });
+		normalized.push({ id: entry.id, visible: entry.visible });
 	}
 	for (const id of BUILTIN_SIDEBAR_PANEL_IDS) {
 		if (!seen.has(id)) normalized.push({ id, visible: true });
 	}
 	if (!normalized.some((entry) => entry.visible)) {
 		warnings.push("sidebarPanelLayout must include at least one visible panel; restoring agent");
-		const first = normalized.find((entry) => entry.id === "agent");
-		if (first) first.visible = true;
+		const agent = normalized.find((entry) => entry.id === "agent");
+		if (agent) agent.visible = true;
 	}
 	return normalized;
 }
 
-const ANSI_ESCAPE =
-	/(?:\u001b\][^\u0007]*(?:\u0007|\u001b\\)|\u001b\[[0-?]*[ -/]*[@-~]|\u009b[0-?]*[ -/]*[@-~])/g;
+export const isSidebarPanelTextWithinRawLimit = (value: unknown, maxCodeUnits: number): value is string =>
+	typeof value === "string" && value.length <= maxCodeUnits;
 
-/** Cheap precondition used before any regex sanitization or Unicode iteration. */
-export function isSidebarPanelTextWithinRawLimit(value: unknown, maxCodeUnits: number): value is string {
-	return typeof value === "string" && value.length <= maxCodeUnits;
-}
-
-function rawCodeUnitLimitFor(maxChars: number): number {
-	return maxChars <= SIDEBAR_PANEL_MAX_TITLE_CHARS
-		? SIDEBAR_PANEL_MAX_RAW_TITLE_CODE_UNITS
-		: SIDEBAR_PANEL_MAX_RAW_ROW_CODE_UNITS;
-}
-
-function boundedRawText(value: string, maxChars: number): string {
-	const limit = rawCodeUnitLimitFor(maxChars);
-	if (value.length <= limit) return value;
-	const bounded = value.slice(0, limit);
-	return /[\ud800-\udbff]$/.test(bounded) ? bounded.slice(0, -1) : bounded;
-}
-
-function cleanSidebarPanelText(value: string): string {
-	return value
-		.replace(ANSI_ESCAPE, "")
-		.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
-		.replace(/\s+/g, " ")
-		.trim();
-}
-
-/** Defensively sanitize text before any Settings or Sidebar interpolation. */
-export function sanitizeSidebarPanelText(value: string, maxChars = SIDEBAR_PANEL_MAX_ROW_CHARS): string {
-	return Array.from(cleanSidebarPanelText(boundedRawText(value, maxChars)))
-		.slice(0, maxChars)
-		.join("");
-}
-
-function fitsSidebarPanelText(value: string, maxChars: number): boolean {
-	return Array.from(cleanSidebarPanelText(value)).length <= maxChars;
+function sanitizeKeyValues(value: unknown): SidebarPanelKeyValueRow[] | undefined {
+	if (!Array.isArray(value) || value.length === 0 || value.length > SIDEBAR_PANEL_MAX_ROWS) return undefined;
+	const rows: SidebarPanelKeyValueRow[] = [];
+	for (const row of value) {
+		if (
+			!isRecord(row) ||
+			!isSidebarPanelTextWithinRawLimit(row.label, SIDEBAR_PANEL_MAX_RAW_ROW_CODE_UNITS) ||
+			!isSidebarPanelTextWithinRawLimit(row.value, SIDEBAR_PANEL_MAX_RAW_ROW_CODE_UNITS)
+		)
+			return undefined;
+		const label = sanitizeInline(row.label);
+		const text = sanitizeInline(row.value);
+		if (
+			Array.from(label).length > SIDEBAR_PANEL_MAX_ROW_CHARS ||
+			Array.from(text).length > SIDEBAR_PANEL_MAX_ROW_CHARS
+		)
+			return undefined;
+		if (!label && !text) continue;
+		rows.push({
+			label,
+			value: text,
+			...(typeof row.progress === "number" &&
+			Number.isFinite(row.progress) &&
+			row.progress >= 0 &&
+			row.progress <= 1
+				? { progress: row.progress }
+				: {}),
+			...(isSidebarPanelRole(row.labelRole) ? { labelRole: row.labelRole } : {}),
+			...(isSidebarPanelRole(row.valueRole) ? { valueRole: row.valueRole } : {}),
+		});
+	}
+	return rows.length ? rows : undefined;
 }
 
 function sanitizeContribution(value: unknown): SanitizedSidebarPanelContribution | undefined {
 	if (
 		!isRecord(value) ||
 		!isSidebarPanelContributionId(value.id) ||
-		typeof value.title !== "string" ||
 		!isSidebarPanelTextWithinRawLimit(value.title, SIDEBAR_PANEL_MAX_RAW_TITLE_CODE_UNITS) ||
 		!Array.isArray(value.rows) ||
-		value.rows.length > SIDEBAR_PANEL_MAX_ROWS ||
-		!fitsSidebarPanelText(value.title, SIDEBAR_PANEL_MAX_TITLE_CHARS)
+		value.rows.length > SIDEBAR_PANEL_MAX_ROWS
 	)
 		return undefined;
+	const title = sanitizeInline(value.title);
+	if (Array.from(title).length > SIDEBAR_PANEL_MAX_TITLE_CHARS) return undefined;
 	const rows: SidebarPanelRow[] = [];
 	for (const row of value.rows) {
 		const text =
 			typeof row === "string" ? row : isRecord(row) && typeof row.text === "string" ? row.text : undefined;
-		if (
-			text === undefined ||
-			!isSidebarPanelTextWithinRawLimit(text, SIDEBAR_PANEL_MAX_RAW_ROW_CODE_UNITS) ||
-			!fitsSidebarPanelText(text, SIDEBAR_PANEL_MAX_ROW_CHARS)
-		)
-			return undefined;
+		if (!isSidebarPanelTextWithinRawLimit(text, SIDEBAR_PANEL_MAX_RAW_ROW_CODE_UNITS)) return undefined;
+		const cleaned = sanitizeInline(text);
+		if (Array.from(cleaned).length > SIDEBAR_PANEL_MAX_ROW_CHARS) return undefined;
 		rows.push({
-			text: sanitizeSidebarPanelText(text, SIDEBAR_PANEL_MAX_ROW_CHARS),
+			text: cleaned,
 			...(isRecord(row) && isSidebarPanelRole(row.role) ? { role: row.role } : {}),
 		});
 	}
+	const keyValues = sanitizeKeyValues(value.keyValues);
 	return {
 		id: value.id,
-		title: sanitizeSidebarPanelText(value.title, SIDEBAR_PANEL_MAX_TITLE_CHARS),
+		title,
 		rows,
+		...(keyValues ? { keyValues } : {}),
 		...(isSidebarPanelRole(value.role) ? { role: value.role } : {}),
 	};
 }
 
-function sourceFor(id: string): string {
-	return id.includes(":") ? id.slice(0, id.indexOf(":")) : "pi-atelier";
+/** The namespace of a validated contributed panel ID is its default source. */
+function sourceFor(id: ContributedSidebarPanelId): string {
+	return id.slice(0, id.indexOf(":"));
 }
 
 function isEvent(value: unknown): value is Record<string, unknown> {
@@ -366,47 +358,27 @@ function nextSidebarPanelRevision(events: SidebarPanelEventTransport, source: st
 	return next;
 }
 
-const DISCOVERY_REQUEST_SEPARATOR = "-";
-const MAX_SAFE_SEQUENCE_CODE_UNITS = String(Number.MAX_SAFE_INTEGER).length;
-const DEFAULT_DISCOVERY_PREFIX = "atelier";
-
-function boundedRawCodeUnits(value: string, maxCodeUnits: number): string {
-	const bounded = value.slice(0, maxCodeUnits);
-	return /[\ud800-\udbff]$/.test(bounded) ? bounded.slice(0, -1) : bounded;
-}
-
-function discoveryPrefix(instanceId: unknown): string {
-	const candidate = isSidebarPanelRequestId(instanceId) ? instanceId : DEFAULT_DISCOVERY_PREFIX;
-	const maxPrefixCodeUnits =
-		SIDEBAR_PANEL_MAX_RAW_REQUEST_ID_CODE_UNITS -
-		DISCOVERY_REQUEST_SEPARATOR.length -
-		MAX_SAFE_SEQUENCE_CODE_UNITS;
-	const bounded = boundedRawCodeUnits(candidate, maxPrefixCodeUnits);
-	return isSidebarPanelRequestId(bounded) ? bounded : DEFAULT_DISCOVERY_PREFIX;
-}
-
 function sidebarPanelDataEqual(first: SidebarPanelData, second: SidebarPanelData): boolean {
 	return (
 		first.id === second.id &&
 		first.title === second.title &&
 		first.role === second.role &&
-		first.available === second.available &&
 		first.source === second.source &&
 		first.rows.length === second.rows.length &&
 		first.rows.every(
 			(row, index) => row.text === second.rows[index]?.text && row.role === second.rows[index]?.role,
-		)
+		) &&
+		JSON.stringify(first.keyValues) === JSON.stringify(second.keyValues)
 	);
 }
 
 /** Create a lifecycle-safe registry backed only by Pi's public event bus. */
 export function createSidebarPanelRegistry(options: SidebarPanelRegistryOptions = {}): SidebarPanelRegistry {
 	const panels = new Map<string, SidebarPanelData>();
-	const owners = new Map<string, string>();
 	const revisions = new Map<string, number>();
 	let disposed = false;
 	let requestSequence = 0;
-	const requestPrefix = discoveryPrefix(options.instanceId);
+	const requestPrefix = options.instanceId ?? "atelier";
 	let unsubscribe: (() => void) | undefined;
 
 	const changed = (): void => {
@@ -416,27 +388,20 @@ export function createSidebarPanelRegistry(options: SidebarPanelRegistryOptions 
 			// Rendering invalidation is best effort and must not break event handling.
 		}
 	};
-	const canAcceptRevision = (source: string, revision: number): boolean => {
-		const previous = revisions.get(source) ?? 0;
-		return Number.isSafeInteger(revision) && revision > previous;
-	};
+	const canAcceptRevision = (source: string, revision: number): boolean =>
+		revision > (revisions.get(source) ?? 0);
 	const trackRevision = (source: string, revision: number): void => {
 		revisions.set(source, revision);
 	};
 	const canTrackSource = (source: string): boolean =>
 		revisions.has(source) || revisions.size < SIDEBAR_PANEL_MAX_TRACKED_SOURCES;
 	const canRegister = (panel: SidebarPanelContribution, source: string): boolean => {
-		const owner = owners.get(panel.id);
+		const owner = panels.get(panel.id)?.source;
 		if (owner !== undefined && owner !== source) return false;
 		return panels.has(panel.id) || panels.size < SIDEBAR_PANEL_MAX_PANELS;
 	};
 	const applyRegister = (safe: SanitizedSidebarPanelContribution, resolvedSource: string): boolean => {
-		owners.set(safe.id, resolvedSource);
-		const next: SidebarPanelData = {
-			...safe,
-			available: true,
-			source: resolvedSource,
-		};
+		const next: SidebarPanelData = { ...safe, source: resolvedSource };
 		const previous = panels.get(safe.id);
 		if (previous && sidebarPanelDataEqual(previous, next)) return false;
 		panels.set(safe.id, next);
@@ -451,15 +416,15 @@ export function createSidebarPanelRegistry(options: SidebarPanelRegistryOptions 
 		if (!isSidebarPanelSource(resolvedSource) || !canRegister(safe, resolvedSource)) return false;
 		return applyRegister(safe, resolvedSource);
 	};
-	const canUnregister = (id: ContributedSidebarPanelId, source: string): boolean => owners.get(id) === source;
+	const canUnregister = (id: ContributedSidebarPanelId, source: string): boolean =>
+		panels.get(id)?.source === source;
 	const applyUnregister = (id: ContributedSidebarPanelId): boolean => {
-		owners.delete(id);
 		const removed = panels.delete(id);
 		changed();
 		return removed;
 	};
 	const unregister = (id: ContributedSidebarPanelId, source?: string): boolean => {
-		if (disposed || !isSidebarPanelContributionId(id)) return false;
+		if (disposed) return false;
 		const resolvedSource = source ?? sourceFor(id);
 		if (!isSidebarPanelSource(resolvedSource) || !canUnregister(id, resolvedSource)) return false;
 		return applyUnregister(id);
@@ -469,7 +434,8 @@ export function createSidebarPanelRegistry(options: SidebarPanelRegistryOptions 
 		if (data.type === "discover") return;
 		if (
 			!isSidebarPanelSource(data.source) ||
-			!isSafeRevision(data.revision) ||
+			typeof data.revision !== "number" ||
+			!Number.isSafeInteger(data.revision) ||
 			(data.type === "register" && data.requestId !== undefined && !isSidebarPanelRequestId(data.requestId))
 		)
 			return;
@@ -500,11 +466,8 @@ export function createSidebarPanelRegistry(options: SidebarPanelRegistryOptions 
 	}
 	const requestDiscovery = (): void => {
 		if (disposed || !options.events) return;
-		// Keep the sequence in Number's safe-integer range. A wrapped ID is
-		// preferable to emitting an imprecise correlation token after exhaustion.
-		requestSequence = requestSequence === Number.MAX_SAFE_INTEGER ? 1 : requestSequence + 1;
-		const requestId = `${requestPrefix}${DISCOVERY_REQUEST_SEPARATOR}${requestSequence}`;
-		if (!isSidebarPanelRequestId(requestId)) return;
+		requestSequence += 1;
+		const requestId = `${requestPrefix}-${requestSequence}`;
 		options.events.emit(SIDEBAR_PANEL_EVENT_CHANNEL, {
 			version: SIDEBAR_PANEL_PROTOCOL_VERSION,
 			type: "discover",
@@ -517,27 +480,15 @@ export function createSidebarPanelRegistry(options: SidebarPanelRegistryOptions 
 		unregister,
 		handleEvent,
 		requestDiscovery,
-		getAvailable: () =>
-			[...panels.values()].map((panel) => ({
-				...panel,
-				rows: panel.rows.map((row) => ({ text: row.text, ...(row.role ? { role: row.role } : {}) })),
-			})),
-		get: (id) => {
-			const panel = panels.get(id);
-			return panel
-				? {
-						...panel,
-						rows: panel.rows.map((row) => ({ text: row.text, ...(row.role ? { role: row.role } : {}) })),
-					}
-				: undefined;
-		},
+		// Stored panels are rebuilt on every change and never mutated in place.
+		getAvailable: () => [...panels.values()],
+		get: (id) => panels.get(id),
 		dispose: () => {
 			if (disposed) return;
 			disposed = true;
 			unsubscribe?.();
 			unsubscribe = undefined;
 			panels.clear();
-			owners.clear();
 		},
 	};
 }
@@ -586,8 +537,7 @@ export function registerSidebarPanel(
 			if (disposed || !source || !stableId) return;
 			const safe = sanitizeContribution(next);
 			// A publisher owns one stable ID for its whole lifetime. Ignore an
-			// invalid payload, but preserve the historical behavior of treating
-			// an attempted ID change as an update to that stable ID.
+			// invalid payload and treat an attempted ID change as an update to that ID.
 			if (!safe) return;
 			current = { ...safe, id: stableId };
 			emitRegister();

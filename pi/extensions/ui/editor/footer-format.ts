@@ -7,6 +7,8 @@
  * variable (and nested group) renders empty.
  */
 
+import { stripVTControlCharacters } from "node:util";
+
 export type FormatToken =
 	| { kind: "text"; value: string }
 	| { kind: "var"; name: string }
@@ -18,6 +20,141 @@ export type CompactBoundaryKind = "space" | "separator";
 export type CompactFormatChunk =
 	| { kind: "tokens"; tokens: FormatToken[]; boundary: CompactBoundaryKind }
 	| { kind: "extensions"; boundary: CompactBoundaryKind };
+
+/** Cached syntax is deeply readonly; public parser/compiler results remain mutable. */
+export type ReadonlyFormatToken =
+	| Readonly<Exclude<FormatToken, { kind: "group" }>>
+	| { readonly kind: "group"; readonly tokens: readonly ReadonlyFormatToken[] };
+
+type ReadonlyCompactChunk =
+	| {
+			readonly kind: "tokens";
+			readonly tokens: readonly ReadonlyFormatToken[];
+			readonly boundary: CompactBoundaryKind;
+	  }
+	| { readonly kind: "extensions"; readonly boundary: CompactBoundaryKind };
+
+export type CompiledCompactChunk = ReadonlyCompactChunk & {
+	readonly references: readonly string[];
+};
+
+export type CompiledFooterFormat = {
+	readonly tokens: readonly ReadonlyFormatToken[];
+	readonly references: readonly string[];
+	readonly compact: {
+		readonly left: readonly CompiledCompactChunk[];
+		readonly right: readonly CompiledCompactChunk[];
+		readonly alignRight: boolean;
+	};
+};
+
+type SyntaxEntry = {
+	tokens: readonly ReadonlyFormatToken[];
+	compact: {
+		left: readonly ReadonlyCompactChunk[];
+		right: readonly ReadonlyCompactChunk[];
+		alignRight: boolean;
+	};
+	names: readonly string[];
+	canonicalNames?: readonly string[];
+	compiled?: CompiledFooterFormat;
+};
+
+// Format text only: no session, config object, rendered output, or theme is retained.
+const syntaxCache = new Map<string, SyntaxEntry>();
+const SYNTAX_CACHE_LIMIT = 32;
+
+function freezeTokens(tokens: FormatToken[]): readonly ReadonlyFormatToken[] {
+	for (const token of tokens) {
+		if (token.kind === "group") freezeTokens(token.tokens);
+		Object.freeze(token);
+	}
+	return Object.freeze(tokens);
+}
+
+function canonicalVariableName(name: string, aliases: Readonly<Record<string, string>>): string {
+	const alias = aliases[name];
+	// Inherited string aliases are supported, but Object.prototype methods are not aliases.
+	return typeof alias === "string" ? alias : name;
+}
+
+/** Share bounded syntax/analysis across rendering and dependency-demand checks. */
+export function compiledFooterFormat(
+	format: string,
+	aliases: Readonly<Record<string, string>> = {},
+): CompiledFooterFormat {
+	let entry = syntaxCache.get(format);
+	if (!entry) {
+		const tokens = parseFooterFormat(format);
+		const compact = compileCompactFormatSplit(tokens);
+		const names = new Set<string>();
+		const visit = (items: FormatToken[]) => {
+			for (const token of items) {
+				if (token.kind === "group") visit(token.tokens);
+				else if (token.kind === "var") names.add(token.name);
+			}
+		};
+		visit(tokens);
+		const freezeChunks = (chunks: CompactFormatChunk[]) =>
+			Object.freeze(
+				chunks.map((chunk) => {
+					if (chunk.kind === "tokens") freezeTokens(chunk.tokens);
+					return Object.freeze(chunk);
+				}),
+			);
+		entry = {
+			tokens: freezeTokens(tokens),
+			compact: Object.freeze({
+				left: freezeChunks(compact.left),
+				right: freezeChunks(compact.right),
+				alignRight: compact.alignRight,
+			}),
+			names: Object.freeze([...names]),
+		};
+		if (syntaxCache.size >= SYNTAX_CACHE_LIMIT) {
+			const oldest = syntaxCache.keys().next().value;
+			if (oldest !== undefined) syntaxCache.delete(oldest);
+		}
+	} else {
+		syntaxCache.delete(format);
+	}
+	syntaxCache.set(format, entry);
+	// Compare only names that occur in this syntax, including structural variables.
+	// This observes in-place alias edits without retaining mutable caller objects.
+	if (
+		entry.compiled &&
+		entry.names.every(
+			(name, i) => canonicalVariableName(name, aliases) === entry.canonicalNames?.[i],
+		)
+	) {
+		return entry.compiled;
+	}
+	const references = (tokens: readonly ReadonlyFormatToken[]) =>
+		Object.freeze([...collectFooterFormatReferences(tokens, aliases)]);
+	const analyzeChunks = (chunks: readonly ReadonlyCompactChunk[]) =>
+		Object.freeze(
+			chunks.map((chunk) =>
+				Object.freeze({
+					...chunk,
+					references:
+						chunk.kind === "tokens" ? references(chunk.tokens) : Object.freeze([] as string[]),
+				}),
+			),
+		);
+	entry.canonicalNames = Object.freeze(
+		entry.names.map((name) => canonicalVariableName(name, aliases)),
+	);
+	entry.compiled = Object.freeze({
+		tokens: entry.tokens,
+		references: references(entry.tokens),
+		compact: Object.freeze({
+			left: analyzeChunks(entry.compact.left),
+			right: analyzeChunks(entry.compact.right),
+			alignRight: entry.compact.alignRight,
+		}),
+	});
+	return entry.compiled;
+}
 
 const TOKEN_REGEX = /\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}|\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
 
@@ -115,10 +252,10 @@ function parseTokenSlice(
  *
  * Text tokens contribute their `value` verbatim (unstyled/plain); var tokens
  * contribute `renderVariable(name)` (already styled by caller). No automatic
- * spaces are inserted — the user controls all spacing.
+ * spaces are inserted except the styled separator between `$join_sep` fields.
  */
 export function renderFormatSplit(
-	tokens: FormatToken[],
+	tokens: readonly ReadonlyFormatToken[],
 	renderVariable: (name: string) => string,
 ): { left: string; middle: string; right: string } {
 	const fillIndices = findTopLevelFillIndices(tokens);
@@ -155,6 +292,22 @@ export function renderFormatSplit(
 		middle: renderTokenSlice(tokens, first + 1, second, renderVariable),
 		right: renderTokenSlice(tokens, second + 1, tokens.length, renderVariable),
 	};
+}
+
+/** Compact uses only the first top-level fill; later fills remain nonstructural. */
+export function compileCompactFormatSplit(tokens: FormatToken[]): {
+	left: CompactFormatChunk[];
+	right: CompactFormatChunk[];
+	alignRight: boolean;
+} {
+	const first = tokens.findIndex((token) => token.kind === "fill");
+	return first < 0
+		? { left: compileCompactFormat(tokens), right: [], alignRight: false }
+		: {
+				left: compileCompactFormat(tokens.slice(0, first)),
+				right: compileCompactFormat(tokens.slice(first + 1)),
+				alignRight: true,
+			};
 }
 
 export function compileCompactFormat(tokens: FormatToken[]): CompactFormatChunk[] {
@@ -208,25 +361,25 @@ function trimBoundaryWhitespace(tokens: FormatToken[]): FormatToken[] {
 }
 
 export function renderFormatTokens(
-	tokens: FormatToken[],
+	tokens: readonly ReadonlyFormatToken[],
 	renderVariable: (name: string) => string,
 ): string {
 	return renderTokenSlice(tokens, 0, tokens.length, renderVariable);
 }
 
 export function collectFooterFormatReferences(
-	tokens: FormatToken[],
+	tokens: readonly ReadonlyFormatToken[],
 	aliases: Record<string, string> = {},
 ): Set<string> {
 	const references = new Set<string>();
-	const visit = (items: FormatToken[]) => {
+	const visit = (items: readonly ReadonlyFormatToken[]) => {
 		for (const token of items) {
 			if (token.kind === "group") {
 				visit(token.tokens);
 				continue;
 			}
-			if (token.kind !== "var") continue;
-			const canonical = aliases[token.name] ?? token.name;
+			if (token.kind !== "var" || token.name === "join_sep") continue;
+			const canonical = canonicalVariableName(token.name, aliases);
 			if (canonical !== "wrap" && canonical !== "wrap_sep" && canonical !== "extensions") {
 				references.add(canonical);
 			}
@@ -236,7 +389,7 @@ export function collectFooterFormatReferences(
 	return references;
 }
 
-function findTopLevelFillIndices(tokens: FormatToken[]): number[] {
+function findTopLevelFillIndices(tokens: readonly ReadonlyFormatToken[]): number[] {
 	const fillIndices: number[] = [];
 	for (let index = 0; index < tokens.length; index++) {
 		if (tokens[index]?.kind === "fill") fillIndices.push(index);
@@ -244,27 +397,47 @@ function findTopLevelFillIndices(tokens: FormatToken[]): number[] {
 	return fillIndices;
 }
 
+/** Join sibling fields only when a marker occurs; legacy output stays verbatim.
+ * VT controls are ignored for detection, never removed from retained output.
+ */
+export function renderJoinedTokenFields(
+	tokens: readonly ReadonlyFormatToken[],
+	renderField: (field: readonly ReadonlyFormatToken[]) => string,
+	renderSeparator: () => string,
+): string {
+	if (!tokens.some((token) => token.kind === "var" && token.name === "join_sep"))
+		return renderField(tokens);
+	const fields: string[] = [];
+	let start = 0;
+	for (let index = 0; index <= tokens.length; index++) {
+		const token = tokens[index];
+		if (index !== tokens.length && !(token?.kind === "var" && token.name === "join_sep")) continue;
+		const rendered = renderField(tokens.slice(start, index));
+		if (stripVTControlCharacters(rendered).trim()) fields.push(rendered);
+		start = index + 1;
+	}
+	return fields.join(fields.length > 1 ? renderSeparator() : "");
+}
+
 function renderTokenSlice(
-	tokens: FormatToken[],
+	tokens: readonly ReadonlyFormatToken[],
 	start: number,
 	end: number,
 	renderVariable: (name: string) => string,
 ): string {
-	let result = "";
-	for (let i = start; i < end; i++) {
-		const token = tokens[i];
-		if (!token) continue;
-		result += renderToken(token, renderVariable);
-	}
-	return result;
+	return renderJoinedTokenFields(
+		tokens.slice(start, end),
+		(field) => field.map((token) => renderToken(token, renderVariable)).join(""),
+		() => renderVariable("sep"),
+	);
 }
 
-function renderToken(token: FormatToken, renderVariable: (name: string) => string): string {
+function renderToken(token: ReadonlyFormatToken, renderVariable: (name: string) => string): string {
 	if (token.kind === "text") return token.value;
 	if (token.kind === "var") return renderVariable(token.name);
 	if (token.kind === "fill") return "";
 	// group
-	const rendered = token.tokens.map((child) => renderToken(child, renderVariable)).join("");
+	const rendered = renderTokenSlice(token.tokens, 0, token.tokens.length, renderVariable);
 	if (isGroupEmpty(token, renderVariable)) return "";
 	return rendered;
 }
@@ -274,17 +447,24 @@ function renderToken(token: FormatToken, renderVariable: (name: string) => strin
  * alive when every real content var is empty (e.g. `($sep$tokens)` drops if
  * tokens is empty).
  */
-const NON_CONTENT_VARS = new Set(["sep", "separator"]);
+const NON_CONTENT_VARS = new Set(["sep", "separator", "join_sep"]);
 
 /**
  * A group is empty iff every content var leaf is empty and every nested group
- * is empty. Text-only groups (no vars) always show. `$sep` / `$separator` are
- * ignored for emptiness so orphan themed pipes do not force a group to render.
+ * is empty. Text-only groups (no vars) always show. `$sep` / `$separator` and
+ * `$join_sep` are not content; an empty joined scope is also empty to its parent.
  */
 function isGroupEmpty(
-	group: FormatToken & { kind: "group" },
+	group: ReadonlyFormatToken & { kind: "group" },
 	renderVariable: (name: string) => string,
 ): boolean {
+	if (
+		group.tokens.some((token) => token.kind === "var" && token.name === "join_sep") &&
+		!stripVTControlCharacters(
+			renderTokenSlice(group.tokens, 0, group.tokens.length, renderVariable),
+		).trim()
+	)
+		return true;
 	let sawContentVarOrGroup = false;
 	for (const child of group.tokens) {
 		if (child.kind === "var") {
@@ -301,7 +481,7 @@ function isGroupEmpty(
 	return sawContentVarOrGroup || groupOnlyNonContentVars(group);
 }
 
-function groupOnlyNonContentVars(group: FormatToken & { kind: "group" }): boolean {
+function groupOnlyNonContentVars(group: ReadonlyFormatToken & { kind: "group" }): boolean {
 	let sawSep = false;
 	for (const child of group.tokens) {
 		if (child.kind === "text") {

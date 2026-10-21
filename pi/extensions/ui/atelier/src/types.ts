@@ -1,28 +1,14 @@
+import type { DENSITIES, PRODUCT_SEGMENT_ORDER, TEMPLATE_NAMES } from "./display.js";
+import type { BUILTIN_SIDEBAR_PANEL_IDS } from "./sidebar-panels.js";
+import type { SubagentUsageSnapshot } from "./subagent-usage.js";
 import type { WorkspacePulseData } from "./workspace-pulse.js";
 
-export type TemplateName = "editorial" | "minimal" | "classic";
+export type TemplateName = (typeof TEMPLATE_NAMES)[number];
 export type PresetName = TemplateName | "custom";
-export type ActivityState = "ready" | "working" | "warning" | "error";
-export type SegmentId =
-	| "brand"
-	| "activity"
-	| "metrics"
-	| "performance"
-	| "context"
-	| "model"
-	| "git"
-	| "statuses"
-	| "menu";
-export type Density = "comfortable" | "compact";
-export type BuiltinSidebarPanelId =
-	| "agent"
-	| "activity"
-	| "alerts"
-	| "todos"
-	| "context"
-	| "workspace"
-	| "usage"
-	| "tools";
+export type ActivityState = "ready" | "working";
+export type SegmentId = (typeof PRODUCT_SEGMENT_ORDER)[number];
+export type Density = (typeof DENSITIES)[number];
+export type BuiltinSidebarPanelId = (typeof BUILTIN_SIDEBAR_PANEL_IDS)[number];
 /** Stable namespaced IDs are used by contributed panels. */
 export type ContributedSidebarPanelId = `${string}:${string}`;
 /** Configuration may retain built-ins and unavailable contributed panels. */
@@ -32,19 +18,7 @@ export interface SidebarPanelLayoutEntry {
 	visible: boolean;
 }
 export type SidebarPanelLayout = SidebarPanelLayoutEntry[];
-/** Legacy menu vocabulary. Ornament is translated to Brand visibility. */
-export type Ornament = "none" | "restrained";
 export type ConfigurationSource = "product" | "user" | "project" | "session";
-export interface TodoItem {
-	id: number;
-	text: string;
-	done: boolean;
-}
-export interface RpivTask {
-	id: number;
-	subject: string;
-	status: string;
-}
 export interface NormalizedTodo {
 	id: number;
 	text: string;
@@ -83,12 +57,8 @@ export interface DisplayLayerState {
 	session?: Record<string, unknown>;
 }
 
-/** A detached copy of the raw Session Display layer. */
-export type SessionDisplayOverride = DisplayPatch & {
-	segments?: unknown;
-	ornament?: unknown;
-	showExtensionStatuses?: unknown;
-};
+/** A detached copy of the Session Display layer. */
+export type SessionDisplayOverride = Omit<DisplayPatch, "sidebarPanelLayout">;
 
 export interface ResponsePerformance {
 	ttftMs: number;
@@ -102,14 +72,12 @@ export interface DisplayValue {
 }
 
 export interface AtelierConfig extends DisplaySettings {
+	nerdFont: boolean;
 	shortcut: string;
 	contextWarning: number;
 	contextDanger: number;
 	currencyDecimals: number;
-	showSessionActions: boolean;
 	showSidebarToolNames: boolean;
-	showSidebarAgent: boolean;
-	showSidebarTodos: boolean;
 	showSidebarOnStartup: boolean;
 	sidebarPanelLayout: SidebarPanelLayout;
 	completionNotifications: boolean;
@@ -146,48 +114,12 @@ export interface AtelierState {
 	dirty: boolean;
 	workspacePulse: WorkspacePulseState;
 	metrics: AtelierMetrics;
+	subagentUsage?: SubagentUsageSnapshot;
 	extensionStatuses: readonly string[];
 }
 
 /** Footer render input: runtime state plus the live response metrics the runtime does not own. */
 export interface FooterState extends AtelierState {
 	performance?: ResponsePerformance;
+	workspaceLabel?: string;
 }
-
-export const DEFAULT_CONFIG: AtelierConfig = {
-	preset: "editorial",
-	shortcut: "alt+a",
-	segmentLayout: [
-		{ id: "brand", visible: false },
-		{ id: "activity", visible: true },
-		{ id: "metrics", visible: true },
-		{ id: "performance", visible: false },
-		{ id: "context", visible: true },
-		{ id: "model", visible: true },
-		{ id: "git", visible: true },
-		{ id: "statuses", visible: true },
-		{ id: "menu", visible: true },
-	],
-	density: "comfortable",
-	contextWarning: 70,
-	contextDanger: 90,
-	currencyDecimals: 3,
-	showSessionActions: true,
-	showSidebarToolNames: false,
-	showSidebarAgent: true,
-	showSidebarTodos: true,
-	showSidebarOnStartup: true,
-	sidebarPanelLayout: [
-		{ id: "agent", visible: true },
-		{ id: "activity", visible: true },
-		{ id: "alerts", visible: true },
-		{ id: "todos", visible: false },
-		{ id: "agent-skills:todos", visible: true },
-		{ id: "context", visible: true },
-		{ id: "workspace", visible: true },
-		{ id: "usage", visible: false },
-		{ id: "agent-skills:cache", visible: true },
-		{ id: "tools", visible: true },
-	],
-	completionNotifications: false,
-};

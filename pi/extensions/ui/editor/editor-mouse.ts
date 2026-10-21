@@ -1,11 +1,6 @@
-// Structural subset keeps mouse support optional on Pi versions before 0.85.
-export type EditorMouseEvent = {
-	type: string;
-	x: number;
-	y: number;
-	width: number;
-	height: number;
-};
+import type { EditorComponent } from "@earendil-works/pi-tui";
+
+export type EditorMouseEvent = Parameters<NonNullable<EditorComponent["handleMouse"]>>[0];
 export type EditorMouseResult = {
 	handled?: boolean;
 	capture?: boolean;

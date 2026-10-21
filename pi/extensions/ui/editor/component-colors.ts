@@ -1,12 +1,16 @@
-import type { ColorSpec, PolishedTuiColors, ZentuiConfig } from "./config";
+import type { ColorSpec, PolishedTuiColors, ZentuiConfig } from "./config.ts";
 import {
 	EDITOR_SHELL_RAIL_FALLBACK,
 	isSupportedColorSpec,
 	type SourceStyleFallback,
-} from "./style";
+} from "./style.ts";
 
 export const componentColorKeys = {
 	footer: [
+		"prNumber",
+		"prUrl",
+		"ci",
+		"tokenRate",
 		"cwd",
 		"sessionName",
 		"gitBranch",
@@ -29,6 +33,10 @@ export const componentColorKeys = {
 		"os",
 	],
 	editor: [
+		"prNumber",
+		"prUrl",
+		"ci",
+		"tokenRate",
 		"cwd",
 		"sessionName",
 		"gitBranch",
@@ -36,6 +44,7 @@ export const componentColorKeys = {
 		"contextNormal",
 		"contextWarning",
 		"contextError",
+		"cacheHit",
 		"cost",
 		"sessionDuration",
 		"accent",
@@ -55,7 +64,7 @@ export const componentColorKeys = {
 	],
 	userMessages: ["accent", "border"],
 	selectorBorders: ["border"],
-	workingLine: ["low", "mid", "high"],
+	workingLine: ["low", "mid", "high", "tokenRate", "turnSummary"],
 } as const;
 export type ColorOwner = keyof typeof componentColorKeys;
 export type ComponentColorKey<O extends ColorOwner> = (typeof componentColorKeys)[O][number];
@@ -103,7 +112,7 @@ export function componentColor(
 export function componentColor(
 	config: ZentuiConfig,
 	owner: "editor",
-	key: Exclude<ComponentColorKey<"editor">, keyof typeof editorLegacyKeys>,
+	key: Exclude<ComponentColorKey<"editor">, keyof typeof editorLegacyKeys | "cacheHit">,
 ): string;
 export function componentColor<O extends ColorOwner>(
 	config: ZentuiConfig,
@@ -119,7 +128,10 @@ export function componentColor<O extends ColorOwner>(
 		key
 	];
 	if (typeof local === "string" && isSupportedColorSpec(local)) return local;
-	if (owner === "selectorBorders") return undefined;
+	if (owner === "workingLine" && key === "turnSummary")
+		return componentColor(config, "workingLine", "high");
+	if (owner === "selectorBorders" || ["prNumber", "prUrl", "ci", "tokenRate"].includes(key))
+		return undefined;
 	const legacy =
 		owner === "editor"
 			? (editorLegacyKeys[key as keyof typeof editorLegacyKeys] ?? key)
@@ -140,6 +152,8 @@ export function workingLineColor(
 ): string | undefined {
 	const local = config.colors?.[tier];
 	if (typeof local === "string" && isSupportedColorSpec(local)) return local;
+	if (tier === "tokenRate") return undefined;
+	if (tier === "turnSummary") return workingLineColor(config, colors, "high");
 	return colors[
 		tier === "low" ? "workingLineLow" : tier === "mid" ? "workingLineMid" : "workingLineHigh"
 	];

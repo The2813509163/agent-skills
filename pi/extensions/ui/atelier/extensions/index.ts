@@ -14,16 +14,12 @@ import {
 	createCompletionNotifier,
 	type SpawnNotificationProcess,
 } from "../src/completion-notifier.js";
-import { loadConfig, saveUserConfigPatch } from "../src/config.js";
-
-import { createFooterComponent, type ThemeLike } from "../src/footer.js";
+import { DEFAULT_CONFIG, loadConfig, saveUserConfigPatch } from "../src/config.js";
 import { installClearSelectionOnRelease } from "../../selection.js";
-import {
-	type DisplaySettingsRuntime,
-	type OverlayLifetime,
-	openAtelierControlCenter,
-	openDisplaySettingsWorkspace,
-} from "../src/menu.js";
+import { type AtelierFooterComponent, createFooterComponent } from "../src/footer.js";
+import { createImageCompositorBinding } from "../src/image-compositor.js";
+import { openAtelierControlCenter, openDisplaySettingsWorkspace, sidebarStatusLabel } from "../src/menu.js";
+import type { OverlayLifetime } from "../src/overlay-lifecycle.js";
 import { createRunActivityTracker, type RunActivityTracker } from "../src/run-activity.js";
 import type { SidebarPanelSetting } from "../src/settings-workspace.js";
 import {
@@ -33,45 +29,38 @@ import {
 	type SidebarSnapshot,
 } from "../src/sidebar.js";
 import {
-	BUILTIN_SIDEBAR_PANEL_IDS,
 	createSidebarPanelRegistry,
-	isSidebarPanelContributionId,
+	isBuiltinSidebarPanelId,
+	type SidebarPanelData,
 	type SidebarPanelRegistry,
 } from "../src/sidebar-panels.js";
 import { AtelierRuntime, createInertAtelierState } from "../src/state.js";
-import type {
-	AtelierConfig,
-	AtelierState,
-	FooterState,
-	NormalizedTodo,
-	RpivTask,
-	TodoItem,
-} from "../src/types.js";
+import { emptySubagentUsage } from "../src/subagent-usage.js";
+import { openSubagentUsage } from "../src/subagent-usage-view.js";
+import { errorMessage, isColorEnabled, isRecord } from "../src/text.js";
+import { reconstructTodos, todosFromDetails } from "../src/todos.js";
+import type { AtelierConfig, AtelierState, FooterState, NormalizedTodo } from "../src/types.js";
 
+// Public sidebar contribution protocol for other extensions.
 export type {
 	SidebarPanelContribution,
-	SidebarPanelData,
 	SidebarPanelDiscoveryEvent,
 	SidebarPanelEvent,
 	SidebarPanelEventTransport,
+	SidebarPanelKeyValueRow,
 	SidebarPanelRegisterEvent,
-	SidebarPanelRegistry,
-	SidebarPanelRegistryOptions,
 	SidebarPanelRole,
 	SidebarPanelRow,
 	SidebarPanelUnregisterEvent,
 } from "../src/sidebar-panels.js";
 export {
 	BUILTIN_SIDEBAR_PANEL_IDS,
-	createSidebarPanelRegistry,
-	DEFAULT_SIDEBAR_PANEL_LAYOUT,
 	isSidebarPanelContributionId,
 	isSidebarPanelId,
 	isSidebarPanelRequestId,
 	isSidebarPanelRole,
 	isSidebarPanelSource,
 	isSidebarPanelTextWithinRawLimit,
-	normalizeSidebarPanelLayout,
 	registerSidebarPanel,
 	SIDEBAR_PANEL_EVENT_CHANNEL,
 	SIDEBAR_PANEL_MAX_ID_CHARS,
@@ -114,9 +103,9 @@ interface ActiveSession {
 	readonly retiredConfig: AtelierConfig;
 	readonly retiredCwd: string;
 	readonly overlayCancellations: Set<() => void>;
+	readonly overlayLifetime: OverlayLifetime;
 	footerDisposer: (() => void) | undefined;
 	footerGeneration: number;
-	retired: boolean;
 	unsubscribeAskUserBlocked: (() => void) | undefined;
 	askUserBlocked: boolean;
 	inputRequestSequence: number;
@@ -129,17 +118,35 @@ interface LifecycleToken {
 	readonly id: number;
 }
 
+const NOT_ACTIVE = "Agent Skills UI is not active in this session";
+const RESIZE_SHORTCUT = "ctrl+shift+r";
+
+const userConfigPath = (): string => join(getAgentDir(), "agent-skills-ui.json");
+
+/** Run every cleanup step even when one throws; teardown must not mask the original failure. */
+function attempt(action: () => void): void {
+	try {
+		action();
+	} catch {
+		// Best effort: later resources still get a release attempt.
+	}
+}
+
+/** Restore Pi's footer. */
+function resetHostUi(ctx: ExtensionContext | undefined): void {
+	attempt(() => ctx?.ui.setFooter(undefined));
+}
+
 export default function atelierExtension(
 	pi: ExtensionAPI,
 	dependencies: AtelierExtensionDependencies = {},
 ): void {
-	const _loadConfig = dependencies.loadConfig ?? loadConfig;
+	const loadAtelierConfig = dependencies.loadConfig ?? loadConfig;
 	const saveConfigPatch = dependencies.saveConfigPatch ?? saveUserConfigPatch;
 	const noopRender = (): void => undefined;
 	let activeSession: ActiveSession | undefined;
 	let enabled = true;
-	let shortcutRegistered = false;
-	let resizeShortcutRegistered = false;
+	let customShortcutRegistered = false;
 	let lifecycleToken: LifecycleToken = { id: 0 };
 	let initializingSessionManager: ExtensionContext["sessionManager"] | undefined;
 
@@ -153,16 +160,16 @@ export default function atelierExtension(
 	}
 
 	const requestAllRenders = (targetSession: ActiveSession): void => {
-		if (activeSession !== targetSession) return;
+		if (!enabled || activeSession !== targetSession) return;
 		targetSession.requestFooterRender();
 		targetSession.sidebar.requestRender();
 	};
 	const lifecycleGuardedSavePatch =
 		(targetSession: ActiveSession): typeof saveUserConfigPatch =>
 		async (path, patch) => {
-			if (activeSession !== targetSession) throw new Error("Agent Skills UI is not active in this session");
+			if (activeSession !== targetSession) throw new Error(NOT_ACTIVE);
 			await saveConfigPatch(path, patch);
-			if (activeSession !== targetSession) throw new Error("Agent Skills UI is not active in this session");
+			if (activeSession !== targetSession) throw new Error(NOT_ACTIVE);
 		};
 
 	function createOverlayLifetime(token: LifecycleToken, cancellations: Set<() => void>): OverlayLifetime {
@@ -170,11 +177,7 @@ export default function atelierExtension(
 			isActive: () => activeSession?.token === token,
 			register(cancel) {
 				if (activeSession?.token !== token) {
-					try {
-						cancel();
-					} catch {
-						// Overlay cancellation is best-effort during lifecycle teardown.
-					}
+					attempt(cancel);
 					return () => undefined;
 				}
 				cancellations.add(cancel);
@@ -185,95 +188,20 @@ export default function atelierExtension(
 
 	function updateExtensionStatuses(targetSession: ActiveSession, next: readonly string[]): void {
 		if (activeSession !== targetSession) return;
-		if (
-			next.length === targetSession.extensionStatuses.length &&
-			next.every((status, index) => status === targetSession.extensionStatuses[index])
-		) {
-			return;
-		}
+		const current = targetSession.extensionStatuses;
+		if (next.length === current.length && next.every((status, index) => status === current[index])) return;
 		targetSession.extensionStatuses = [...next];
 		targetSession.sidebar.requestRender();
 	}
 
-	const VALID_TODO_STATUSES = new Set(["pending", "in_progress", "completed"]);
-
-	interface OldTodoDetails {
-		todos: TodoItem[];
-		nextId: number;
-	}
-	interface NewTaskDetails {
-		tasks: RpivTask[];
-		nextId: number;
-	}
-
-	function isOldTodoDetails(details: unknown): details is OldTodoDetails {
-		if (typeof details !== "object" || details === null) return false;
-		if (!("todos" in details)) return false;
-		const todos = (details as OldTodoDetails).todos;
-		if (!Array.isArray(todos)) return false;
-		return todos.every(
-			(item) =>
-				typeof item === "object" &&
-				item !== null &&
-				typeof (item as TodoItem).id === "number" &&
-				typeof (item as TodoItem).text === "string" &&
-				typeof (item as TodoItem).done === "boolean",
-		);
-	}
-
-	function isNewTaskDetails(details: unknown): details is NewTaskDetails {
-		if (typeof details !== "object" || details === null) return false;
-		if (!("tasks" in details)) return false;
-		const tasks = (details as NewTaskDetails).tasks;
-		if (!Array.isArray(tasks)) return false;
-		return tasks.every(
-			(item) =>
-				typeof item === "object" &&
-				item !== null &&
-				typeof (item as RpivTask).id === "number" &&
-				typeof (item as RpivTask).subject === "string" &&
-				typeof (item as RpivTask).status === "string",
-		);
-	}
-
-	function normalizeTodo(item: TodoItem | RpivTask): NormalizedTodo | undefined {
-		if ("done" in item) {
-			return { id: item.id, text: item.text, status: item.done ? "completed" : "pending" };
-		}
-		const status = item.status;
-		if (!VALID_TODO_STATUSES.has(status)) return undefined;
-		return { id: item.id, text: item.subject, status: status as NormalizedTodo["status"] };
-	}
-
-	function getTodoItems(details: unknown): (TodoItem | RpivTask)[] | undefined {
-		if (isOldTodoDetails(details)) return details.todos;
-		if (isNewTaskDetails(details)) return details.tasks;
-		return undefined;
-	}
-
-	function reconstructTodos(ctx: ExtensionContext): NormalizedTodo[] {
-		let allItems: (TodoItem | RpivTask)[] = [];
-		for (const entry of ctx.sessionManager.getBranch()) {
-			if (entry.type !== "message") continue;
-			const msg = entry.message;
-			if (msg.role !== "toolResult" || msg.toolName !== "todo" || msg.isError) continue;
-			const rawItems = getTodoItems(msg.details);
-			if (rawItems) allItems = rawItems;
-		}
-		return allItems.map(normalizeTodo).filter((item): item is NormalizedTodo => item !== undefined);
-	}
 	function getSidebarSnapshot(targetSession: ActiveSession): SidebarSnapshot {
-		if (targetSession.retired || activeSession !== targetSession) {
+		if (!enabled || activeSession !== targetSession) {
 			return buildSidebarSnapshot({
 				state: targetSession.retiredState,
 				cwd: targetSession.retiredCwd,
 				branchEntryCount: 0,
 				activeToolCount: 0,
 				availableToolCount: 0,
-				activeToolNames: [],
-				extensionStatuses: [],
-				todos: [],
-				sidebarPanels: [],
 			});
 		}
 		const { ctx, panelRegistry, runActivity, runtime } = targetSession;
@@ -281,7 +209,7 @@ export default function atelierExtension(
 		const sessionFile = ctx.sessionManager.getSessionFile();
 		const activeTools = pi.getActiveTools();
 		return buildSidebarSnapshot({
-			state: runtime.getState(),
+			state: { ...runtime.getState(), extensionStatuses: targetSession.extensionStatuses },
 			cwd: ctx.cwd,
 			...(sessionName ? { sessionName } : {}),
 			...(sessionFile ? { sessionFile } : {}),
@@ -289,7 +217,6 @@ export default function atelierExtension(
 			activeToolCount: activeTools.length,
 			availableToolCount: pi.getAllTools().length,
 			activeToolNames: activeTools,
-			extensionStatuses: targetSession.extensionStatuses,
 			runActivity: runActivity.getSnapshot(),
 			todos: targetSession.todos,
 			sidebarPanels: panelRegistry.getAvailable(),
@@ -313,23 +240,21 @@ export default function atelierExtension(
 		return current && contextUsesSessionManager(ctx, current.sessionManager) ? current : undefined;
 	}
 
-	function clearFooter(session: ActiveSession, shouldClear: boolean): void {
+	/** The active session for `ctx`, or undefined after telling the user there is none. */
+	function requireActiveSession(ctx: ExtensionContext): ActiveSession | undefined {
+		const current = getActiveSession(ctx);
+		if (!current) ctx.ui.notify(NOT_ACTIVE, "warning");
+		return current;
+	}
+
+	function clearFooter(session: ActiveSession, restoreHostUi: boolean): void {
 		// Invalidate callbacks before touching Pi so a failed removal cannot leave a live footer.
 		session.footerGeneration += 1;
 		const footerDisposer = session.footerDisposer;
 		session.footerDisposer = undefined;
-		if (shouldClear) {
-			try {
-				session.ctx.ui.setFooter(undefined);
-			} catch {
-				// Pi may retain the old footer when removal fails; dispose it below regardless.
-			}
-		}
-		try {
-			footerDisposer?.();
-		} catch {
-			// Footer disposal is best-effort and must not mask session teardown.
-		}
+		// Pi may retain the old footer when removal fails; it is disposed below regardless.
+		if (restoreHostUi) resetHostUi(session.ctx);
+		if (footerDisposer) attempt(footerDisposer);
 	}
 
 	/**
@@ -337,43 +262,29 @@ export default function atelierExtension(
 	 * resource gets a release attempt even if another disposer throws.
 	 */
 	function disposeSession(session: ActiveSession, options: { clearFooter?: boolean } = {}): void {
-		session.retired = true;
 		session.todos = [];
 		session.extensionStatuses = [];
 		session.askUserBlocked = false;
 		session.inputRequestSequence = 0;
 		session.requestFooterRender = noopRender;
-		const cleanup = (action: () => void): void => {
-			try {
-				action();
-			} catch {
-				// Teardown must not leak later resources or replace the original failure.
-			}
-		};
 		clearFooter(session, options.clearFooter === true);
-		for (const cancel of Array.from(session.overlayCancellations)) cleanup(cancel);
+		for (const cancel of Array.from(session.overlayCancellations)) attempt(cancel);
 		session.overlayCancellations.clear();
-		cleanup(() => session.sidebar.dispose());
-		cleanup(() => session.panelRegistry.dispose());
-		cleanup(() => session.runtime.dispose());
-		cleanup(() => session.runActivity.reset());
-		cleanup(() => session.completionNotifier.reset());
+		attempt(() => session.sidebar.dispose());
+		attempt(() => session.panelRegistry.dispose());
+		attempt(() => session.runtime.dispose());
+		attempt(() => session.runActivity.reset());
+		attempt(() => session.completionNotifier.reset());
 		const unsubscribe = session.unsubscribeAskUserBlocked;
 		session.unsubscribeAskUserBlocked = undefined;
-		if (unsubscribe) cleanup(unsubscribe);
+		if (unsubscribe) attempt(unsubscribe);
 	}
 
 	function teardownActiveSession(ctx?: ExtensionContext): void {
 		const retiredSession = activeSession;
 		activeSession = undefined;
 		if (retiredSession) disposeSession(retiredSession, { clearFooter: true });
-		else {
-			try {
-				ctx?.ui.setFooter(undefined);
-			} catch {
-				// No-active cleanup must not mask the original lifecycle failure.
-			}
-		}
+		else resetHostUi(ctx);
 	}
 
 	async function setSidebarToolNames(
@@ -381,96 +292,104 @@ export default function atelierExtension(
 		visible: boolean | undefined,
 		targetSession: ActiveSession,
 	): Promise<void> {
-		const { runtime: targetRuntime } = targetSession;
-		const next = visible ?? !targetRuntime.getConfig().showSidebarToolNames;
-		if (targetRuntime.getConfig().showSidebarToolNames !== next) {
-			targetRuntime.setConfig({ ...targetRuntime.getConfig(), showSidebarToolNames: next });
+		const { runtime } = targetSession;
+		const next = visible ?? !runtime.getConfig().showSidebarToolNames;
+		if (runtime.getConfig().showSidebarToolNames !== next) {
+			runtime.setConfig({ ...runtime.getConfig(), showSidebarToolNames: next });
 		}
 		try {
-			await lifecycleGuardedSavePatch(targetSession)(join(getAgentDir(), "agent-skills-ui.json"), {
-				showSidebarToolNames: next,
-			});
+			await lifecycleGuardedSavePatch(targetSession)(userConfigPath(), { showSidebarToolNames: next });
 			if (activeSession !== targetSession) return;
 			ctx.ui.notify(`Sidebar tool list ${next ? "expanded" : "collapsed"}`, "info");
 		} catch (error) {
 			if (activeSession !== targetSession) return;
 			ctx.ui.notify(
-				`Sidebar tool list changed for this session but could not be saved: ${
-					error instanceof Error ? error.message : String(error)
-				}`,
+				`Sidebar tool list changed for this session but could not be saved: ${errorMessage(error)}`,
 				"warning",
 			);
 		}
 	}
 
-	function completionNotification(
-		ctx: ExtensionContext,
-		kind: CompletionNotification["kind"],
-		snapshot = activeSession?.runActivity.getSnapshot(),
-	): CompletionNotification {
-		const sessionName = ctx.sessionManager.getSessionName();
+	function completionNotification(session: ActiveSession): CompletionNotification {
+		const sessionName = session.ctx.sessionManager.getSessionName();
+		const { completedCount, failedCount } = session.runActivity.getSnapshot();
 		return {
-			kind,
-			projectName: basename(ctx.cwd),
+			projectName: basename(session.ctx.cwd),
 			...(sessionName ? { sessionName } : {}),
-			...(snapshot === undefined ? {} : { completedToolCount: snapshot.completedCount }),
-			...(snapshot === undefined ? {} : { failedToolCount: snapshot.failedCount }),
+			completedToolCount: completedCount,
+			failedToolCount: failedCount,
 		};
 	}
 
 	function getSidebarPanelSettings(targetSession: ActiveSession): readonly SidebarPanelSetting[] {
-		const configured = targetSession.runtime.getSidebarPanelLayout();
-		const available = new Map(targetSession.panelRegistry.getAvailable().map((panel) => [panel.id, panel]));
+		const configured = targetSession.runtime.getConfig().sidebarPanelLayout;
+		const available = new Map<string, SidebarPanelData>(
+			targetSession.panelRegistry.getAvailable().map((panel) => [panel.id, panel]),
+		);
 		const configuredIds = new Set(configured.map((entry) => entry.id));
 		return [
 			...configured.map((entry) => {
-				const contributed = isSidebarPanelContributionId(entry.id) ? available.get(entry.id) : undefined;
+				const contributed = available.get(entry.id);
 				return {
 					id: entry.id,
 					title: contributed?.title ?? entry.id,
-					available:
-						BUILTIN_SIDEBAR_PANEL_IDS.includes(entry.id as (typeof BUILTIN_SIDEBAR_PANEL_IDS)[number]) ||
-						contributed !== undefined,
+					available: isBuiltinSidebarPanelId(entry.id) || contributed !== undefined,
 					visible: entry.visible,
 				};
 			}),
-			...Array.from(available.values())
+			...[...available.values()]
 				.filter((panel) => !configuredIds.has(panel.id))
-				.map((panel) => ({
-					id: panel.id,
-					title: panel.title,
-					available: true,
-					visible: false,
-				})),
+				.map((panel) => ({ id: panel.id, title: panel.title, available: true, visible: false })),
 		];
 	}
 
-	async function openMenu(ctx: ExtensionContext): Promise<void> {
+	async function openUsage(ctx: ExtensionContext, expected?: ActiveSession): Promise<void> {
 		const current = getActiveSession(ctx);
-		if (!current) {
-			ctx.ui.notify("Agent Skills UI is not active in this session", "warning");
+		if (ctx.mode !== "tui" || !current || !enabled || (expected && current !== expected)) {
+			ctx.ui.notify("Enable Agent Skills UI in a TUI session to view usage", "info");
 			return;
 		}
-		const { runtime: targetRuntime, sidebar: targetSidebar } = current;
+		if (!ctx.isProjectTrusted()) {
+			ctx.ui.notify("Subagent metadata requires a trusted project", "info");
+			return;
+		}
+		await current.runtime.refreshSubagentUsage();
+		if (activeSession !== current || !enabled || !ctx.isProjectTrusted()) return;
+		await openSubagentUsage(
+			ctx,
+			current.runtime.getState().subagentUsage ?? emptySubagentUsage(),
+			current.runtime.getConfig().currencyDecimals,
+			current.overlayLifetime,
+		);
+	}
+
+	async function openMenu(ctx: ExtensionContext): Promise<void> {
+		const current = requireActiveSession(ctx);
+		if (!current) return;
+		const { runtime, sidebar } = current;
+		const isCurrent = (): boolean => activeSession === current;
 		await openAtelierControlCenter(
 			pi,
 			ctx,
-			targetRuntime,
-			join(getAgentDir(), "agent-skills-ui.json"),
+			runtime,
+			userConfigPath(),
 			{
-				isVisible: () => activeSession === current && targetSidebar.isVisible(),
+				getStatus: () => sidebar.getStatus(),
+				setMode: (mode) => {
+					if (enabled && isCurrent()) sidebar.setMode(mode);
+				},
 				toggle: () => {
-					if (activeSession === current) targetSidebar.toggle();
+					if (enabled && isCurrent()) sidebar.toggle();
 				},
-				isToolListExpanded: () => activeSession === current && targetRuntime.getConfig().showSidebarToolNames,
+				isToolListExpanded: () => isCurrent() && runtime.getConfig().showSidebarToolNames,
 				toggleToolList: async () => {
-					if (activeSession === current) await setSidebarToolNames(ctx, undefined, current);
+					if (isCurrent()) await setSidebarToolNames(ctx, undefined, current);
 				},
-				getSidebarPanelSettings: () => (activeSession === current ? getSidebarPanelSettings(current) : []),
+				getSidebarPanelSettings: () => (isCurrent() ? getSidebarPanelSettings(current) : []),
 			},
 			() => requestAllRenders(current),
 			lifecycleGuardedSavePatch(current),
-			{ lifetime: createOverlayLifetime(current.token, current.overlayCancellations) },
+			{ lifetime: current.overlayLifetime, openUsage: () => openUsage(ctx, current) },
 		);
 	}
 
@@ -479,53 +398,30 @@ export default function atelierExtension(
 			ctx.ui.notify("Agent Skills UI Display settings require TUI mode", "warning");
 			return;
 		}
-		const current = getActiveSession(ctx);
-		if (!current) {
-			ctx.ui.notify("Agent Skills UI is not active in this session", "warning");
-			return;
-		}
-		const targetRuntime = current.runtime;
-		const displayRuntime: DisplaySettingsRuntime = {
-			getConfig: () => targetRuntime.getConfig(),
-			getSidebarPanelSettings: () => getSidebarPanelSettings(current),
-			getDisplaySettings: () => targetRuntime.getDisplaySettings(),
-			getDisplayProvenance: () => targetRuntime.getDisplayProvenance(),
-			getSessionDisplayOverride: () => targetRuntime.getSessionDisplayOverride(),
-			replaceSessionDisplayOverride: (value) => {
-				if (activeSession === current) targetRuntime.replaceSessionDisplayOverride(value);
-			},
-			clearSessionDisplayOverride: () => {
-				if (activeSession === current) targetRuntime.clearSessionDisplayOverride();
-			},
-			applySavedUserDisplayPatch: (patch) => {
-				if (activeSession === current) targetRuntime.applySavedUserDisplayPatch(patch);
-			},
-		};
+		const current = requireActiveSession(ctx);
+		if (!current) return;
 		await openDisplaySettingsWorkspace(
 			ctx,
-			displayRuntime,
-			join(getAgentDir(), "agent-skills-ui.json"),
+			current.runtime,
+			() => getSidebarPanelSettings(current),
+			userConfigPath(),
 			() => requestAllRenders(current),
 			lifecycleGuardedSavePatch(current),
-			{ lifetime: createOverlayLifetime(current.token, current.overlayCancellations) },
+			{ lifetime: current.overlayLifetime },
 		);
 	}
 
 	function installFooter(targetSession: ActiveSession): void {
-		const { ctx } = targetSession;
-		const token = targetSession.token;
+		const { ctx, token, retiredState, retiredConfig } = targetSession;
 		const generation = ++targetSession.footerGeneration;
-		const retiredState = targetSession.retiredState;
-		const retiredConfig = targetSession.retiredConfig;
-		if (ctx.mode !== "tui") return;
+		const getCurrentSession = (): ActiveSession | undefined => {
+			const current = activeSession;
+			return enabled && current?.token === token && current.footerGeneration === generation
+				? current
+				: undefined;
+		};
 		ctx.ui.setFooter((tui, theme, footerData) => {
 			installClearSelectionOnRelease(tui);
-			const getCurrentSession = (): ActiveSession | undefined => {
-				const current = activeSession;
-				return enabled && current?.token === token && current.footerGeneration === generation
-					? current
-					: undefined;
-			};
 			const footerRequestRender = (): void => {
 				if (getCurrentSession()) tui.requestRender();
 			};
@@ -541,13 +437,14 @@ export default function atelierExtension(
 					const performance = currentSession.runActivity.getSnapshot().performance;
 					return {
 						...currentSession.runtime.getState(),
+						workspaceLabel: basename(currentSession.ctx.cwd),
 						...(branch ? { branch } : {}),
 						...(performance ? { performance } : {}),
 						extensionStatuses: currentSession.extensionStatuses,
 					};
 				},
 				getConfig: () => getCurrentSession()?.runtime.getConfig() ?? retiredConfig,
-				colorEnabled: !("NO_COLOR" in process.env),
+				colorEnabled: isColorEnabled(),
 				requestRender: footerRequestRender,
 				onBranchChange: (callback) =>
 					footerData.onBranchChange(() => {
@@ -556,335 +453,325 @@ export default function atelierExtension(
 						void currentSession.runtime.flushWorkspacePulseRefresh();
 						callback();
 					}),
-				// SAFETY: Pi Theme exposes the fg/bg/bold methods consumed by ThemeLike.
-				theme: theme as unknown as ThemeLike,
+				theme,
 			});
-			const mounted = getCurrentSession();
-			if (mounted) mounted.footerDisposer = component.dispose;
-			else component.dispose();
-			return component;
+			const imageCompositor = createImageCompositorBinding(tui);
+			const mounted: AtelierFooterComponent = {
+				...component,
+				render(width) {
+					imageCompositor.sync();
+					return component.render(width);
+				},
+				dispose() {
+					try {
+						component.dispose();
+					} finally {
+						imageCompositor.dispose();
+					}
+				},
+			};
+			const session = getCurrentSession();
+			if (session) session.footerDisposer = mounted.dispose;
+			else mounted.dispose();
+			return mounted;
 		});
+
 	}
 
-	pi.registerCommand("ui", {
-		description: "Open or control the Agent Skills UI status menu",
-		handler: async (args, ctx) => {
-			const parts = args.trim().toLowerCase().split(/\s+/).filter(Boolean);
-			const [action, sidebarAction, ...extra] = parts;
-			if (action === "display") {
-				if (sidebarAction !== undefined || extra.length > 0) {
-					ctx.ui.notify("Usage: /ui display", "warning");
-					return;
-				}
-				await openDisplay(ctx);
-				return;
-			}
-			if (action === "sidebar") {
+	type CommandHandler = (ctx: ExtensionContext, args: readonly string[]) => Promise<void> | void;
+	const usage = (ctx: ExtensionContext, syntax: string): void =>
+		ctx.ui.notify(`Usage: /ui ${syntax}`, "warning");
+	const isOnOff = (value: string | undefined): boolean =>
+		value === undefined || value === "on" || value === "off";
+
+	const commands = new Map<string, CommandHandler>(
+		Object.entries({
+			usage: async (ctx, args) => {
+				if (args.length > 0) usage(ctx, "usage");
+				else await openUsage(ctx);
+			},
+			display: async (ctx, args) => {
+				if (args.length > 0) usage(ctx, "display");
+				else await openDisplay(ctx);
+			},
+			sidebar: async (ctx, [sidebarAction, ...extra]) => {
 				if (ctx.mode !== "tui") {
 					ctx.ui.notify("Agent Skills UI sidebar requires TUI mode", "warning");
 					return;
 				}
-				const current = getActiveSession(ctx);
-				if (!current) {
-					ctx.ui.notify("Agent Skills UI is not active in this session", "warning");
+				const current = requireActiveSession(ctx);
+				if (!current) return;
+				if (!enabled && sidebarAction !== "off") {
+					ctx.ui.notify("Enable Agent Skills UI with /ui enable before showing its sidebar", "info");
 					return;
 				}
 				if (sidebarAction === "tools") {
 					const [toolAction, ...toolExtra] = extra;
-					if (
-						toolExtra.length > 0 ||
-						(toolAction !== undefined && toolAction !== "on" && toolAction !== "off")
-					) {
-						ctx.ui.notify("Usage: /ui sidebar tools [on|off]", "warning");
-						return;
-					}
-					await setSidebarToolNames(ctx, toolAction === undefined ? undefined : toolAction === "on", current);
+					if (toolExtra.length > 0 || !isOnOff(toolAction)) usage(ctx, "sidebar tools [on|off]");
+					else
+						await setSidebarToolNames(
+							ctx,
+							toolAction === undefined ? undefined : toolAction === "on",
+							current,
+						);
 					return;
 				}
 				if (
 					extra.length > 0 ||
-					(sidebarAction !== undefined && sidebarAction !== "on" && sidebarAction !== "off")
+					(!isOnOff(sidebarAction) && sidebarAction !== "auto" && sidebarAction !== "manual")
 				) {
-					ctx.ui.notify("Usage: /ui sidebar [on|off]", "warning");
+					usage(ctx, "sidebar [auto|manual|on|off]");
 					return;
 				}
-				if (sidebarAction === "on") current.sidebar.show();
+				if (sidebarAction === "auto" || sidebarAction === "manual") current.sidebar.setMode(sidebarAction);
+				else if (sidebarAction === "on") current.sidebar.show();
 				else if (sidebarAction === "off") current.sidebar.hide();
 				else current.sidebar.toggle();
-				return;
-			}
-			if (action === "disable") {
-				const current = getActiveSession(ctx);
-				if (!current) {
-					ctx.ui.notify("Agent Skills UI is not active in this session", "warning");
-					return;
-				}
+				ctx.ui.notify(`Sidebar: ${sidebarStatusLabel(current.sidebar.getStatus())}`, "info");
+			},
+			disable: (ctx) => {
+				const current = requireActiveSession(ctx);
+				if (!current) return;
 				enabled = false;
+				current.runtime.setEnabled(false);
+				current.runActivity.resetResponse();
+				current.completionNotifier.reset();
+				current.todos = [];
 				current.sidebar.hide();
 				updateExtensionStatuses(current, []);
 				clearFooter(current, true);
 				ctx.ui.notify("Agent Skills UI disabled", "info");
-				return;
-			}
-			if (action === "enable") {
-				const current = getActiveSession(ctx);
-				if (!current) {
-					ctx.ui.notify("Agent Skills UI is not active in this session", "warning");
-					return;
+			},
+			enable: (ctx) => {
+				const current = requireActiveSession(ctx);
+				if (!current) return;
+				if (!enabled) {
+					enabled = true;
+					current.todos = reconstructTodos(current.ctx);
+					current.runtime.setEnabled(true);
+					installFooter(current);
 				}
-				enabled = true;
-				installFooter(current);
 				ctx.ui.notify("Agent Skills UI enabled", "info");
-				return;
-			}
-			await openMenu(ctx);
+			},
+		} satisfies Record<string, CommandHandler>),
+	);
+
+	pi.registerCommand("ui", {
+		description: "Open or control the Agent Skills UI status menu",
+		handler: async (args, ctx) => {
+			const [action, ...rest] = args.trim().toLowerCase().split(/\s+/).filter(Boolean);
+			const command = action === undefined ? undefined : commands.get(action);
+			if (command) await command(ctx, rest);
+			else await openMenu(ctx);
 		},
 	});
 
+	pi.registerShortcut(DEFAULT_CONFIG.shortcut as KeyId, {
+		description: "Open Agent Skills UI",
+		handler: async (shortcutContext) => openMenu(shortcutContext),
+	});
+	pi.registerShortcut(RESIZE_SHORTCUT, {
+		description: "Resize Agent Skills UI sidebar",
+		handler: (shortcutContext) => {
+			const current = getActiveSession(shortcutContext);
+			if (!current?.sidebar.getStatus().enabled) {
+				shortcutContext.ui.notify("Show the Agent Skills UI sidebar before resizing it", "warning");
+				return;
+			}
+			current.sidebar.beginResize();
+		},
+	});
+
+	/** A configured shortcut is read from the first loaded config; Pi cannot unregister shortcuts. */
+	function registerCustomShortcut(ctx: ExtensionContext, shortcut: string): void {
+		if (customShortcutRegistered) return;
+		customShortcutRegistered = true;
+		if (shortcut.toLowerCase() === DEFAULT_CONFIG.shortcut) return;
+		try {
+			pi.registerShortcut(shortcut as KeyId, {
+				description: "Open Agent Skills UI",
+				handler: async (shortcutContext) => openMenu(shortcutContext),
+			});
+		} catch {
+			ctx.ui.notify(
+				`Cannot register Atelier shortcut "${shortcut}"; ${DEFAULT_CONFIG.shortcut} remains available`,
+				"warning",
+			);
+		}
+	}
+
+	/** Builds a session from loaded config; nothing here awaits, so the caller's token stays fresh. */
+	function createSession(
+		ctx: ExtensionContext,
+		token: LifecycleToken,
+		config: AtelierConfig,
+		loaded: Awaited<ReturnType<typeof loadConfig>>,
+		cleanup: (() => void)[],
+	): ActiveSession {
+		const isPublished = (): boolean => activeSession?.token === token;
+		const requestRenders = (): void => {
+			const current = activeSession;
+			if (current?.token === token) requestAllRenders(current);
+		};
+		const runActivity = createRunActivityTracker({ cwd: ctx.cwd, onChange: requestRenders });
+		cleanup.push(() => runActivity.reset());
+		let autoCompact: boolean | null = null;
+		try {
+			autoCompact = SettingsManager.create(
+				ctx.isProjectTrusted() ? ctx.cwd : getAgentDir(),
+			).getCompactionSettings().enabled;
+		} catch {
+			ctx.ui.notify("Could not read Pi compaction settings; compaction mode is unavailable", "warning");
+		}
+		const runtime = new AtelierRuntime({
+			pi,
+			ctx,
+			config,
+			displayLayers: loaded.displayLayers,
+			displayProvenance: loaded.displayProvenance,
+			autoCompact,
+			enabled,
+			requestRender: requestRenders,
+		});
+		cleanup.push(() => runtime.dispose());
+		const panelRegistry = createSidebarPanelRegistry({
+			events: pi.events,
+			instanceId: `atelier-${token.id}`,
+			onChange: requestRenders,
+		});
+		cleanup.push(() => panelRegistry.dispose());
+		const completionNotifier = createCompletionNotifier({
+			isEnabled: () => enabled && isPublished() && runtime.getConfig().completionNotifications,
+			...(dependencies.notificationPlatform === undefined
+				? {}
+				: { platform: dependencies.notificationPlatform }),
+			...(dependencies.spawnNotificationProcess === undefined
+				? {}
+				: { spawn: dependencies.spawnNotificationProcess }),
+		});
+		cleanup.push(() => completionNotifier.reset());
+		const sidebar = createSidebarController({
+			ctx,
+			getSnapshot: () => {
+				const current = activeSession;
+				if (!current || current.token !== token) throw new Error("Agent Skills UI session is not published");
+				return getSidebarSnapshot(current);
+			},
+			getConfig: () => (isPublished() ? runtime.getConfig() : config),
+			colorEnabled: isColorEnabled(),
+			shouldAnimate: () => enabled && isPublished() && runActivity.isRunning(),
+			onToggleToolNames: () => {
+				const current = activeSession;
+				if (current?.token === token) void setSidebarToolNames(ctx, undefined, current);
+			},
+			onWarning: (message) => ctx.ui.notify(message, "warning"),
+			onError: (error) => ctx.ui.notify(`Agent Skills UI sidebar failed: ${errorMessage(error)}`, "error"),
+		});
+		cleanup.push(() => sidebar.dispose());
+		const overlayCancellations = new Set<() => void>();
+		return {
+			ctx,
+			sessionManager: ctx.sessionManager,
+			token,
+			runtime,
+			sidebar,
+			panelRegistry,
+			runActivity,
+			completionNotifier,
+			retiredState: createInertAtelierState(autoCompact),
+			retiredConfig: structuredClone(config),
+			retiredCwd: ctx.cwd,
+			overlayCancellations,
+			overlayLifetime: createOverlayLifetime(token, overlayCancellations),
+			footerDisposer: undefined,
+			footerGeneration: 0,
+			unsubscribeAskUserBlocked: undefined,
+			askUserBlocked: false,
+			inputRequestSequence: 0,
+			todos: enabled ? reconstructTodos(ctx) : [],
+			requestFooterRender: noopRender,
+			extensionStatuses: [],
+		};
+	}
+
+	/** rpiv's ask-user tool blocks on the user; notify once per blocking request. */
+	function subscribeAskUserBlocked(session: ActiveSession): () => void {
+		return pi.events.on("rpiv:ask-user:blocked", (data) => {
+			const current = activeSession;
+			if (current?.token !== session.token || !isRecord(data) || !("active" in data)) return;
+			if (data.active === false) {
+				current.askUserBlocked = false;
+				return;
+			}
+			if (data.active !== true || current.askUserBlocked) return;
+			current.askUserBlocked = true;
+			current.inputRequestSequence += 1;
+			if (!enabled || !current.runtime.getConfig().completionNotifications) return;
+			current.completionNotifier.inputRequested(
+				`blocked-${current.inputRequestSequence}`,
+				completionNotification(current),
+			);
+		});
+	}
+
 	pi.on("session_start", async (_event, ctx) => {
-		const initializationContext = ctx;
-		if (initializationContext.mode !== "tui") {
+		if (ctx.mode !== "tui") {
 			startLifecycleGeneration(undefined);
 			if (activeSession) teardownActiveSession();
 			return;
 		}
-		const initializationSessionManager = initializationContext.sessionManager;
-		const initializationToken = startLifecycleGeneration(initializationSessionManager);
-
-		let localRuntime: AtelierRuntime | undefined;
-		let localSidebar: SidebarController | undefined;
-		let localPanelRegistry: SidebarPanelRegistry | undefined;
-		let localCompletionNotifier: CompletionNotifier | undefined;
-		let candidateSession: ActiveSession | undefined;
-		let publishedSession: ActiveSession | undefined;
-		const isFresh = (): boolean => initializationToken === lifecycleToken;
-		const requestCandidateRenders = (): void => {
-			const current = activeSession;
-			if (current?.token === initializationToken) requestAllRenders(current);
-		};
-		const localRunActivity = createRunActivityTracker({
-			cwd: initializationContext.cwd,
-			onChange: requestCandidateRenders,
-		});
+		const token = startLifecycleGeneration(ctx.sessionManager);
+		const isFresh = (): boolean => token === lifecycleToken;
+		// Resources of a session that never became active; released if initialization fails.
+		const candidateCleanup: (() => void)[] = [];
+		let published: ActiveSession | undefined;
 		try {
-			const userPath = join(getAgentDir(), "agent-skills-ui.json");
-			const projectPath = join(initializationContext.cwd, CONFIG_DIR_NAME, "agent-skills-ui.json");
-			const loaded = await _loadConfig({
-				userPath,
-				projectPath,
-				projectTrusted: initializationContext.isProjectTrusted(),
+			const loaded = await loadAtelierConfig({
+				userPath: userConfigPath(),
+				projectPath: join(ctx.cwd, CONFIG_DIR_NAME, "agent-skills-ui.json"),
+				projectTrusted: ctx.isProjectTrusted(),
 			});
+			// The only await: a newer lifecycle may have started meanwhile.
 			if (!isFresh()) return;
-			for (const warning of loaded.warnings) initializationContext.ui.notify(warning, "warning");
-			let autoCompact: boolean | null = null;
-			try {
-				autoCompact = SettingsManager.create(
-					initializationContext.isProjectTrusted() ? initializationContext.cwd : getAgentDir(),
-				).getCompactionSettings().enabled;
-			} catch {
-				initializationContext.ui.notify(
-					"Could not read Pi compaction settings; compaction mode is unavailable",
-					"warning",
-				);
-			}
-			const candidateRuntime = new AtelierRuntime({
-				pi,
-				ctx: initializationContext,
-				config: loaded.config,
-				displayLayers: loaded.displayLayers,
-				displayProvenance: loaded.displayProvenance,
-				autoCompact,
-				requestRender: requestCandidateRenders,
-			});
-			localRuntime = candidateRuntime;
-			localPanelRegistry = createSidebarPanelRegistry({
-				events: pi.events,
-				instanceId: `atelier-${initializationToken.id}`,
-				onChange: requestCandidateRenders,
-			});
-			const candidateCompletionNotifier = createCompletionNotifier({
-				isEnabled: () =>
-					enabled &&
-					activeSession?.token === initializationToken &&
-					candidateRuntime.getConfig().completionNotifications,
-				...(dependencies.notificationPlatform === undefined
-					? {}
-					: { platform: dependencies.notificationPlatform }),
-				...(dependencies.spawnNotificationProcess === undefined
-					? {}
-					: { spawn: dependencies.spawnNotificationProcess }),
-			});
-			localCompletionNotifier = candidateCompletionNotifier;
-			localSidebar = createSidebarController({
-				ctx: initializationContext,
-				getSnapshot: () => {
-					const current = activeSession;
-					if (!current || current.token !== initializationToken)
-						throw new Error("Agent Skills UI session is not published");
-					return getSidebarSnapshot(current);
-				},
-				getConfig: () =>
-					activeSession?.token === initializationToken ? candidateRuntime.getConfig() : loaded.config,
-				colorEnabled: !("NO_COLOR" in process.env),
-				shouldAnimate: () => activeSession?.token === initializationToken && localRunActivity.isRunning(),
-				onWarning: (message) => initializationContext.ui.notify(message, "warning"),
-				// 点侧栏 TOOLS 的 `n / m active ▸` 行 = 上游 /ui sidebar tools 的同一动作。
-				onToggleToolNames: () => {
-					const current = activeSession;
-					if (current && current.token === initializationToken)
-						void setSidebarToolNames(initializationContext, undefined, current);
-				},
-				onError: (error) =>
-					initializationContext.ui.notify(
-						`Agent Skills UI sidebar failed: ${error instanceof Error ? error.message : String(error)}`,
-						"error",
-					),
-			});
-			if (!isFresh()) {
-				localSidebar.dispose();
-				localPanelRegistry?.dispose();
-				localRunActivity.reset();
-				candidateCompletionNotifier.reset();
-				candidateRuntime.dispose();
-				return;
-			}
+			for (const warning of loaded.warnings) ctx.ui.notify(warning, "warning");
+			const session = createSession(ctx, token, loaded.config, loaded, candidateCleanup);
+			candidateCleanup.length = 0;
+			candidateCleanup.push(() => disposeSession(session));
+			session.unsubscribeAskUserBlocked = subscribeAskUserBlocked(session);
 
-			const nextSession: ActiveSession = {
-				ctx: initializationContext,
-				sessionManager: initializationContext.sessionManager,
-				token: initializationToken,
-				runtime: candidateRuntime,
-				sidebar: localSidebar,
-				panelRegistry: localPanelRegistry,
-				runActivity: localRunActivity,
-				completionNotifier: candidateCompletionNotifier,
-				retiredState: createInertAtelierState(autoCompact),
-				retiredConfig: structuredClone(loaded.config),
-				retiredCwd: initializationContext.cwd,
-				overlayCancellations: new Set(),
-				footerDisposer: undefined,
-				footerGeneration: 0,
-				retired: false,
-				unsubscribeAskUserBlocked: undefined,
-				askUserBlocked: false,
-				inputRequestSequence: 0,
-				todos: reconstructTodos(initializationContext),
-				requestFooterRender: noopRender,
-				extensionStatuses: [],
-			};
-			candidateSession = nextSession;
-			const askUserToken = nextSession.token;
-			nextSession.unsubscribeAskUserBlocked = pi.events.on("rpiv:ask-user:blocked", (data) => {
-				const current = activeSession;
-				if (!current || current.token !== askUserToken) return;
-				if (typeof data !== "object" || data === null || !("active" in data)) return;
-				const active = (data as { active?: unknown }).active;
-				if (active === false) {
-					current.askUserBlocked = false;
-					return;
-				}
-				if (active !== true || current.askUserBlocked) return;
-				current.askUserBlocked = true;
-				current.inputRequestSequence += 1;
-				current.completionNotifier.inputRequested(
-					`blocked-${current.inputRequestSequence}`,
-					completionNotification(current.ctx, "input-requested", current.runActivity.getSnapshot()),
-				);
-			});
-			if (!isFresh()) {
-				disposeSession(nextSession);
-				return;
-			}
 			const previousSession = activeSession;
-			activeSession = nextSession;
-			publishedSession = nextSession;
+			activeSession = session;
+			published = session;
 			if (previousSession) disposeSession(previousSession, { clearFooter: true });
-
-			if (isFresh() && !shortcutRegistered) {
-				try {
-					pi.registerShortcut(loaded.config.shortcut as KeyId, {
-						description: "Open Agent Skills UI",
-						handler: async (shortcutContext) => openMenu(shortcutContext),
-					});
-				} catch {
-					pi.registerShortcut("alt+a" as KeyId, {
-						description: "Open Agent Skills UI",
-						handler: async (shortcutContext) => openMenu(shortcutContext),
-					});
-					initializationContext.ui.notify(
-						`Invalid Atelier shortcut "${loaded.config.shortcut}"; using alt+a`,
-						"warning",
-					);
-				}
-				shortcutRegistered = true;
+			registerCustomShortcut(ctx, loaded.config.shortcut);
+			session.sidebar.setMode("manual");
+			if (enabled) {
+				installFooter(session);
+				if (loaded.config.showSidebarOnStartup) session.sidebar.show();
 			}
-			if (isFresh() && !resizeShortcutRegistered) {
-				pi.registerShortcut("ctrl+shift+r" as KeyId, {
-					description: "Resize Agent Skills UI sidebar",
-					handler: (shortcutContext) => {
-						const current = getActiveSession(shortcutContext);
-						if (!current?.sidebar.isVisible()) {
-							shortcutContext.ui.notify("Show the Agent Skills UI sidebar before resizing it", "warning");
-							return;
-						}
-						current.sidebar.beginResize();
-					},
-				});
-				resizeShortcutRegistered = true;
-			}
-			if (enabled && isFresh() && activeSession === nextSession) {
-				installFooter(nextSession);
-				if (loaded.config.showSidebarOnStartup) nextSession.sidebar.show();
-			}
-			void candidateRuntime.flushWorkspacePulseRefresh();
+			void session.runtime.flushWorkspacePulseRefresh();
 		} catch (error) {
-			const cleanup = (action: () => void): void => {
-				try {
-					action();
-				} catch {
-					// Preserve the initialization failure and keep attempting candidate cleanup.
-				}
-			};
-			if (!publishedSession) {
-				// Candidate-local cleanup: this session never became active, so no active-session teardown applies.
-				if (candidateSession) disposeSession(candidateSession);
-				else {
-					const sidebar = localSidebar;
-					const panelRegistry = localPanelRegistry;
-					const completionNotifier = localCompletionNotifier;
-					const runtime = localRuntime;
-					if (sidebar) cleanup(() => sidebar.dispose());
-					if (panelRegistry) cleanup(() => panelRegistry.dispose());
-					cleanup(() => localRunActivity.reset());
-					if (completionNotifier) cleanup(() => completionNotifier.reset());
-					if (runtime) cleanup(() => runtime.dispose());
-				}
-				if (!isFresh()) return;
-				initializationContext.ui.notify(
-					`Agent Skills UI could not start: ${error instanceof Error ? error.message : String(error)}`,
-					"error",
-				);
-				return;
-			}
-			if (!isFresh()) return;
-			if (activeSession !== publishedSession) return;
-			teardownActiveSession(initializationContext);
-			initializationContext.ui.notify(
-				`Agent Skills UI could not start: ${error instanceof Error ? error.message : String(error)}`,
-				"error",
-			);
+			if (!published) {
+				// This session never became active, so only its own resources are released.
+				for (const cleanup of candidateCleanup.reverse()) attempt(cleanup);
+			} else if (activeSession === published) {
+				teardownActiveSession(ctx);
+			} else return;
+			if (isFresh()) ctx.ui.notify(`Agent Skills UI could not start: ${errorMessage(error)}`, "error");
 		} finally {
-			if (lifecycleToken === initializationToken) initializingSessionManager = undefined;
+			if (lifecycleToken === token) initializingSessionManager = undefined;
 		}
 	});
 
+	// Run lifecycle events are tracked while disabled so re-enabling mid-run shows an
+	// accurate phase; content (tool arguments, response estimates, todos) is not.
 	pi.on("session_tree", (_event, ctx) => {
 		const current = getActiveSession(ctx);
-		if (!current) return;
+		if (!enabled || !current) return;
 		current.todos = reconstructTodos(ctx);
+		void current.runtime.refreshSubagentUsage();
 		requestAllRenders(current);
 	});
-
 	pi.on("agent_start", (_event, ctx) => {
 		const current = getActiveSession(ctx);
 		if (!current) return;
@@ -900,19 +787,23 @@ export default function atelierExtension(
 		current.runtime.scheduleWorkspacePulseRefresh();
 	});
 	pi.on("before_provider_request", (_event, ctx) => {
-		getActiveSession(ctx)?.runActivity.startResponse();
+		if (enabled) getActiveSession(ctx)?.runActivity.startResponse();
 	});
 	pi.on("message_update", (event, ctx) => {
+		const current = getActiveSession(ctx);
+		if (!enabled || !current) return;
 		const estimatedOutputTokens = estimateTokens(event.message);
-		if (estimatedOutputTokens <= 0) return;
-		getActiveSession(ctx)?.runActivity.updateResponseEstimate(estimatedOutputTokens);
+		if (estimatedOutputTokens > 0) current.runActivity.updateResponseEstimate(estimatedOutputTokens);
 	});
 	pi.on("message_end", (event, ctx) => {
+		if (event.message.role === "custom" && event.message.customType === "subagent-slash-result") {
+			getActiveSession(ctx)?.runtime.observeSubagentMetadata(event.message.details);
+		}
 		if (event.message.role !== "assistant") return;
 		getActiveSession(ctx)?.runActivity.finishResponse(event.message.usage.output);
 	});
 	pi.on("tool_execution_start", (event, ctx) => {
-		getActiveSession(ctx)?.runActivity.startTool(event);
+		getActiveSession(ctx)?.runActivity.startTool(enabled ? event : { ...event, args: undefined });
 	});
 	pi.on("tool_execution_end", (event, ctx) => {
 		const current = getActiveSession(ctx);
@@ -920,43 +811,34 @@ export default function atelierExtension(
 		current.runActivity.finishTool(event);
 		current.runtime.scheduleWorkspacePulseRefresh();
 	});
-	// Collapse todo tool output when sidebar shows todos
 	pi.on("tool_result", (event, ctx) => {
-		if (event.toolName !== "todo") return;
+		if (!enabled || event.toolName !== "todo") return;
 		const current = getActiveSession(ctx);
 		if (!current || event.isError) return;
-
-		const rawItems = getTodoItems(event.details);
-		if (!rawItems) return;
-		const todoList = rawItems.map(normalizeTodo).filter((item): item is NormalizedTodo => item !== undefined);
+		const todos = todosFromDetails(event.details);
+		if (!todos) return;
 		// Keep state updates independent from whether the TODO panel is currently presented.
-		current.todos = todoList;
+		current.todos = todos;
 		const sidebarVisible = current.sidebar.isVisible();
-		if (sidebarVisible) current.sidebar.requestRender();
-		const sidebarTodoLayout = current.runtime
+		current.sidebar.requestRender();
+		const todoPanelVisible = current.runtime
 			.getConfig()
-			.sidebarPanelLayout.find((entry) => entry.id === "todos");
-		if (
-			!current.runtime.getConfig().showSidebarTodos ||
-			sidebarTodoLayout?.visible === false ||
-			!sidebarVisible ||
-			todoList.length === 0
-		)
-			return;
-		const done = todoList.filter((t) => t.status === "completed").length;
-		return {
-			content: [{ type: "text", text: `${done}/${todoList.length} done · see sidebar` }],
-		};
+			.sidebarPanelLayout.some((entry) => entry.id === "todos" && entry.visible);
+		// The sidebar shows the list, so collapse the tool output to a summary.
+		if (!todoPanelVisible || !sidebarVisible || todos.length === 0) return;
+		const done = todos.filter((todo) => todo.status === "completed").length;
+		return { content: [{ type: "text", text: `${done}/${todos.length} done · see sidebar` }] };
 	});
 	pi.on("agent_settled", (_event, ctx) => {
 		const current = getActiveSession(ctx);
 		if (!current || !ctx.isIdle()) return;
 		current.runActivity.settle();
 		current.runtime.setActivity("ready");
+		if (!enabled) return;
 		current.sidebar.requestRender();
-		current.completionNotifier.turnSettled(
-			completionNotification(current.ctx, "turn-settled", current.runActivity.getSnapshot()),
-		);
+		if (current.runtime.getConfig().completionNotifications) {
+			current.completionNotifier.turnSettled(completionNotification(current));
+		}
 	});
 	pi.on("turn_end", async (_event, ctx) => {
 		const current = getActiveSession(ctx);
@@ -964,10 +846,12 @@ export default function atelierExtension(
 		current.runtime.refreshUsage();
 		await current.runtime.flushWorkspacePulseRefresh();
 	});
-	pi.on("model_select", (_event, ctx) => getActiveSession(ctx)?.runtime.refreshUsage());
-	pi.on("thinking_level_select", (_event, ctx) => getActiveSession(ctx)?.runtime.refreshUsage());
-	pi.on("session_compact", (_event, ctx) => getActiveSession(ctx)?.runtime.refreshUsage());
-	pi.on("session_info_changed", (_event, ctx) => getActiveSession(ctx)?.runtime.refreshUsage());
+	const refreshUsage = (_event: unknown, ctx: ExtensionContext): void =>
+		getActiveSession(ctx)?.runtime.refreshUsage();
+	pi.on("model_select", refreshUsage);
+	pi.on("thinking_level_select", refreshUsage);
+	pi.on("session_compact", refreshUsage);
+	pi.on("session_info_changed", refreshUsage);
 	pi.on("session_shutdown", (_event, ctx) => {
 		const current = getActiveSession(ctx);
 		const initializing = initializingSessionManager;

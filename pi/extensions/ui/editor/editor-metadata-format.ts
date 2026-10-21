@@ -1,11 +1,20 @@
+import { stripVTControlCharacters } from "node:util";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { CodexQuota } from "./codex-quota";
-import { codexQuotaText, renderCodexQuota } from "./codex-quota-display";
-import { componentColor, editorShellColor } from "./component-colors";
-import type { ZentuiConfig } from "./config";
-import { type FormatToken, parseFooterFormat } from "./footer-format";
-import { buildSessionTokenLabel, formatCacheHitRate, formatContextPercentLabel } from "./format";
-import { EDITOR_ACCENT_FALLBACK, renderStyleForSourceOrFallback, safeThemeFg } from "./style";
+import type { CodexQuota } from "./codex-quota.ts";
+import { codexQuotaText, renderCodexQuota } from "./codex-quota-display.ts";
+import { componentColor, editorShellColor } from "./component-colors.ts";
+import { OPENCODE_FORMAT_VARIABLES, type ZentuiConfig } from "./config.ts";
+import { renderCustomValue } from "./custom-value-colors.ts";
+import { normalizeTemplateVariables } from "./custom-variable-format.ts";
+import {
+	parseFooterFormat,
+	type ReadonlyFormatToken,
+	renderJoinedTokenFields,
+} from "./footer-format.ts";
+import { buildSessionTokenLabel, formatCacheHitRate, formatContextPercentLabel } from "./format.ts";
+import { type HostTemplateValues, isHostTemplateVariable } from "./host-template-values.ts";
+import { liveMetadataColor } from "./live-metadata-display.ts";
+import { EDITOR_ACCENT_FALLBACK, renderStyleForSourceOrFallback, safeThemeFg } from "./style.ts";
 
 export type EditorMetadataValues = {
 	codexQuota?: CodexQuota;
@@ -15,11 +24,14 @@ export type EditorMetadataValues = {
 	provider: string;
 	thinking: string;
 	sessionName: string;
+	fastMode?: string;
 	contextPercent?: number;
 	contextWindow?: number;
 	inputTokens?: number;
 	outputTokens?: number;
 	cacheHitRate?: number;
+	customVariables?: ReadonlyMap<string, string>;
+	hostTemplateValues?: HostTemplateValues;
 };
 
 type RenderedTokens = {
@@ -181,9 +193,51 @@ function renderVariable(
 	config: ZentuiConfig,
 	shellMode = false,
 ): { plain: string; styled: string } {
+	const editor = config.components.editor;
+	const style =
+		editor.style === "opencode-copy-friendly"
+			? editor.styles[editor.style]
+			: editor.styles.opencode;
+	const aliases = normalizeTemplateVariables(style.variables, OPENCODE_FORMAT_VARIABLES);
+	if (isHostTemplateVariable(name) && !Object.hasOwn(aliases, name)) {
+		const plain = sanitizeEditorMetadataText(values.hostTemplateValues?.[name] ?? "");
+		return {
+			plain,
+			styled: plain
+				? renderStyleForSourceOrFallback(
+						uiTheme,
+						editor.colorSource,
+						liveMetadataColor(config, "editor", name) ?? componentColor(config, "editor", "border"),
+						"border",
+						plain,
+					)
+				: "",
+		};
+	}
+	if (Object.hasOwn(aliases, name)) {
+		const raw = values.customVariables?.get(aliases[name]) ?? "";
+		const text = renderCustomValue({
+			key: aliases[name],
+			raw,
+			colors: editor.customValueColors,
+			mode: style.extensionColorMode ?? "original",
+			theme: uiTheme,
+			source: editor.colorSource,
+			fallbackStyle: config.colors.extensionStatus,
+		});
+		const plain = sanitizeEditorMetadataText(text);
+		return {
+			plain,
+			styled: plain ? text : "",
+		};
+	}
 	if (name === "codex_quota") {
 		const styled = renderCodexQuota(values.codexQuota, uiTheme, config, "editor");
 		return { plain: styled ? codexQuotaText(values.codexQuota) : "", styled };
+	}
+	if (name === "fast_mode") {
+		const plain = sanitizeEditorMetadataText(values.fastMode ?? "");
+		return { plain, styled: plain ? safeThemeFg(uiTheme, "accent", plain) : "" };
 	}
 	const colorSource = config.components.editor.colorSource;
 	const thinking = values.thinking.toLowerCase() === "off" ? "" : values.thinking;
@@ -262,7 +316,33 @@ function renderVariable(
 }
 
 function renderTokens(
-	tokens: FormatToken[],
+	tokens: readonly ReadonlyFormatToken[],
+	values: EditorMetadataValues,
+	uiTheme: Theme,
+	config: ZentuiConfig,
+	shellMode = false,
+): RenderedTokens {
+	const hasJoin = tokens.some((token) => token.kind === "var" && token.name === "join_sep");
+	let hasDynamic = false;
+	let hasNonEmptyDynamic = false;
+	const styled = renderJoinedTokenFields(
+		tokens,
+		(field) => {
+			const rendered = renderTokenField(field, values, uiTheme, config, shellMode);
+			hasDynamic ||= rendered.hasDynamic;
+			if (!hasJoin || stripVTControlCharacters(rendered.styled).trim())
+				hasNonEmptyDynamic ||= rendered.hasNonEmptyDynamic;
+			return rendered.styled;
+		},
+		() => safeThemeFg(uiTheme, "border", " · "),
+	);
+	// An empty join cannot keep an enclosing optional group alive.
+	if (hasJoin && !stripVTControlCharacters(styled).trim()) hasDynamic = true;
+	return { styled, hasDynamic, hasNonEmptyDynamic };
+}
+
+function renderTokenField(
+	tokens: readonly ReadonlyFormatToken[],
 	values: EditorMetadataValues,
 	uiTheme: Theme,
 	config: ZentuiConfig,

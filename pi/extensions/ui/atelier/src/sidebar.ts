@@ -1,74 +1,33 @@
-import { homedir } from "node:os";
 import { withCollapsiblePanels } from "../../sidebar-collapse.js";
 import { basename } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type Component, type OverlayHandle, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import type { ThemeLike } from "./footer.js";
-import { aggregateMetrics, formatTokens } from "./metrics.js";
-import { type AtelierPalette, createPalette, type PaletteRole } from "./palette.js";
+import { DEFAULT_CONFIG } from "./config.js";
+import { displayHomePath } from "./display-path.js";
+import { contextRole } from "./footer.js";
+import { hasCapturingOverlay } from "./image-compositor.js";
+import { formatTokens } from "./metrics.js";
+import { type AtelierPalette, createPalette, type PaletteRole, type ThemeLike } from "./palette.js";
 import {
 	EMPTY_RUN_ACTIVITY,
 	formatDuration,
-	formatResponsePerformance,
+	responsePerformanceValues,
 	type RunActivitySnapshot,
 	type ToolActivity,
 } from "./run-activity.js";
-import {
-	BUILTIN_SIDEBAR_PANEL_IDS,
-	isSidebarPanelContributionId,
-	SIDEBAR_PANEL_MAX_ROW_CHARS,
-	SIDEBAR_PANEL_MAX_ROWS,
-	SIDEBAR_PANEL_MAX_TITLE_CHARS,
-	type SidebarPanelData,
-	type SidebarPanelRole,
-	sanitizeSidebarPanelText,
-} from "./sidebar-panels.js";
-import { createSplitPaneController, type SplitPaneController } from "./split-pane.js";
-import {
-	DEFAULT_CONFIG,
-	type AtelierConfig,
-	type AtelierState,
-	type NormalizedTodo,
-	type WorkspacePulseState,
+import { isBuiltinSidebarPanelId, type SidebarPanelData } from "./sidebar-panels.js";
+import { createSplitPaneController, type SidebarMode, type SidebarStatus } from "./split-pane.js";
+import { createInertAtelierState } from "./state.js";
+import { type SubagentCostChartGraphics, subagentCostChart } from "./subagent-cost-chart.js";
+import { errorMessage, fitToWidth, PLACEHOLDER, sanitizeInline } from "./text.js";
+import type {
+	AtelierConfig,
+	AtelierState,
+	BuiltinSidebarPanelId,
+	NormalizedTodo,
+	WorkspacePulseState,
 } from "./types.js";
 import type { WorkspacePulseData } from "./workspace-pulse.js";
-
-export type {
-	SidebarPanelContribution,
-	SidebarPanelData,
-	SidebarPanelDiscoveryEvent,
-	SidebarPanelEvent,
-	SidebarPanelEventTransport,
-	SidebarPanelRegisterEvent,
-	SidebarPanelRegistry,
-	SidebarPanelRegistryOptions,
-	SidebarPanelRole,
-	SidebarPanelRow,
-	SidebarPanelUnregisterEvent,
-} from "./sidebar-panels.js";
-export {
-	BUILTIN_SIDEBAR_PANEL_IDS,
-	createSidebarPanelRegistry,
-	DEFAULT_SIDEBAR_PANEL_LAYOUT,
-	isSidebarPanelContributionId,
-	isSidebarPanelId,
-	isSidebarPanelRequestId,
-	isSidebarPanelSource,
-	isSidebarPanelTextWithinRawLimit,
-	registerSidebarPanel,
-	SIDEBAR_PANEL_EVENT_CHANNEL,
-	SIDEBAR_PANEL_MAX_ID_CHARS,
-	SIDEBAR_PANEL_MAX_PANELS,
-	SIDEBAR_PANEL_MAX_RAW_REQUEST_ID_CODE_UNITS,
-	SIDEBAR_PANEL_MAX_RAW_ROW_CODE_UNITS,
-	SIDEBAR_PANEL_MAX_RAW_TITLE_CODE_UNITS,
-	SIDEBAR_PANEL_MAX_ROW_CHARS,
-	SIDEBAR_PANEL_MAX_ROWS,
-	SIDEBAR_PANEL_MAX_SOURCE_CHARS,
-	SIDEBAR_PANEL_MAX_TITLE_CHARS,
-	SIDEBAR_PANEL_MAX_TRACKED_SOURCES,
-	sanitizeSidebarPanelText,
-} from "./sidebar-panels.js";
 
 export interface SidebarSnapshotInput {
 	state: AtelierState;
@@ -79,7 +38,6 @@ export interface SidebarSnapshotInput {
 	activeToolCount: number;
 	availableToolCount: number;
 	activeToolNames?: readonly string[];
-	extensionStatuses: readonly string[];
 	runActivity?: RunActivitySnapshot;
 	todos?: readonly NormalizedTodo[];
 	sidebarPanels?: readonly SidebarPanelData[];
@@ -89,7 +47,6 @@ export interface SidebarSnapshot extends AtelierState {
 	projectName: string;
 	cwd: string;
 	sessionName?: string;
-	sessionFile?: string;
 	persisted: boolean;
 	branchEntryCount: number;
 	activeToolCount: number;
@@ -97,7 +54,7 @@ export interface SidebarSnapshot extends AtelierState {
 	activeToolNames: readonly string[];
 	runActivity: RunActivitySnapshot;
 	todos: readonly NormalizedTodo[];
-	sidebarPanels?: readonly SidebarPanelData[];
+	sidebarPanels: readonly SidebarPanelData[];
 }
 
 function workspacePulseData(pulse: WorkspacePulseState): WorkspacePulseData | undefined {
@@ -112,47 +69,29 @@ export function buildSidebarSnapshot(input: SidebarSnapshotInput): SidebarSnapsh
 		projectName,
 		cwd: input.cwd,
 		...(input.sessionName ? { sessionName: input.sessionName } : {}),
-		...(input.sessionFile ? { sessionFile: input.sessionFile } : {}),
 		persisted: Boolean(input.sessionFile),
 		branchEntryCount: input.branchEntryCount,
 		activeToolCount: input.activeToolCount,
 		availableToolCount: input.availableToolCount,
-		activeToolNames: [...new Set((input.activeToolNames ?? []).map(sanitize).filter(Boolean))].sort((a, b) =>
-			a.localeCompare(b, "en"),
+		activeToolNames: [...new Set((input.activeToolNames ?? []).map(sanitizeInline).filter(Boolean))].sort(
+			(a, b) => a.localeCompare(b, "en"),
 		),
-		extensionStatuses: input.extensionStatuses,
 		runActivity: input.runActivity ?? EMPTY_RUN_ACTIVITY,
 		todos: input.todos ?? [],
 		sidebarPanels: input.sidebarPanels ?? [],
 	};
 }
 
-const sanitize = (text: string): string =>
-	text
-		.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
-		.replace(/[\u0000-\u001f\u007f]/g, " ")
-		.replace(/\s+/g, " ")
-		.trim();
+const LABEL_COLUMN_WIDTH = 12;
+/** The AGENT jewel alternates once per animation tick while the agent works. */
+const SIDEBAR_ANIMATION_INTERVAL_MS = 1_000;
 
-const display = (value: string | undefined): string => {
-	const safe = value === undefined ? "" : sanitize(value);
-	return safe || "—";
-};
+type Jewel = "✦" | "✧";
 
-const finiteCount = (value: number): number => (Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0);
-
-function shortPath(path: string): string {
-	const safe = sanitize(path);
-	const home = homedir();
-	if (safe === home) return "~";
-	if (home && safe.startsWith(`${home}/`)) return `~${safe.slice(home.length)}`;
-	return safe || "—";
-}
-
-function padToWidth(text: string, width: number): string {
-	const safeWidth = Math.max(0, Math.trunc(width));
-	const content = truncateToWidth(text, safeWidth, "");
-	return `${content}${" ".repeat(Math.max(0, safeWidth - visibleWidth(content)))}`;
+/** Text, or the placeholder (painted dim) when there is none. */
+function valueRow(value: string | undefined, palette: AtelierPalette, role: PaletteRole): string {
+	const text = value === undefined ? "" : sanitizeInline(value);
+	return text ? palette.paint(role, text) : palette.paint("dim", PLACEHOLDER);
 }
 
 function renderDock(
@@ -160,18 +99,13 @@ function renderDock(
 	width: number,
 	height: number,
 	palette: AtelierPalette,
-	resizing = false,
+	resizing: boolean,
 ): string[] {
-	const safeWidth = Math.max(0, Math.trunc(width));
-	const safeHeight = Math.max(0, Math.trunc(height));
-	if (safeWidth <= 0 || safeHeight <= 0) return [];
-	const contentWidth = Math.max(0, safeWidth - 2);
+	const contentWidth = Math.max(0, width - 2);
 	const edge = resizing ? `${palette.paint("warning", "│")} ` : "  ";
-	return Array.from({ length: safeHeight }, (_, index) => {
-		const content = truncateToWidth(rows[index] ?? "", contentWidth, "");
-		const padding = " ".repeat(Math.max(0, contentWidth - visibleWidth(content)));
-		return truncateToWidth(`${edge}${content}${padding}`, safeWidth, "");
-	});
+	return Array.from({ length: height }, (_, index) =>
+		truncateToWidth(`${edge}${fitToWidth(rows[index] ?? "", contentWidth)}`, width, ""),
+	);
 }
 
 function panelRows(
@@ -181,354 +115,221 @@ function panelRows(
 	palette: AtelierPalette,
 	theme: ThemeLike,
 	role: PaletteRole,
-	_jewel: "✦" | "✧",
+	_jewel: Jewel,
 ): string[] {
-	// 扁平分节风格：无边框/宝石，标题（角色色加粗）+ dim 横线填充，正文裸行，空行收尾。
-	// sidebar-collapse.ts 的折叠/hover 识别依赖此格式：标题行 = `TITLE  ────`。
-	const safeWidth = Math.max(4, Math.trunc(width));
-	const safeTitle = sanitizeSidebarPanelText(title, SIDEBAR_PANEL_MAX_TITLE_CHARS).toUpperCase();
-	const fill = "─".repeat(Math.max(2, safeWidth - visibleWidth(safeTitle) - 2));
-	const header = `${theme.bold(palette.paint(role, safeTitle))} ${palette.paint("dim", fill)}`;
-	const body = rows.map((row) => truncateToWidth(row, safeWidth, ""));
-	return [header, ...body, ""];
+	const safeWidth = Math.max(4, width);
+	const fill = "─".repeat(Math.max(2, safeWidth - visibleWidth(title) - 2));
+	const header = `${theme.bold(palette.paint(role, title))} ${palette.paint("dim", fill)}`;
+	return [header, ...rows.map(row => truncateToWidth(row, safeWidth, "")), ""];
 }
 
-function valueRow(value: string | undefined, palette: AtelierPalette, role: PaletteRole): string {
-	const text = display(value);
-	return palette.paint(text === "—" ? "dim" : role, text);
-}
-
-const COMPACT_SIDEBAR_MAX_WIDTH = 39;
-
-interface SidebarLayout {
-	compact: boolean;
-	showToolNames: boolean;
-}
-
-function sidebarLayout(width: number, config: AtelierConfig): SidebarLayout {
-	const compact = width <= COMPACT_SIDEBAR_MAX_WIDTH;
-	return {
-		compact,
-		showToolNames: config.showSidebarToolNames,
-	};
-}
-
-function activityRole(activity: SidebarSnapshot["activity"]): PaletteRole {
-	if (activity === "error") return "error";
-	if (activity === "warning") return "warning";
-	if (activity === "working") return "working";
-	return "ready";
-}
-
-function activitySymbol(activity: SidebarSnapshot["activity"]): string {
-	if (activity === "error") return "✕";
-	if (activity === "warning") return "▲";
-	if (activity === "working") return "◆";
-	return "●";
+/** Align names and values consistently across all built-in panels. */
+function labeledRow(
+	label: string,
+	value: string,
+	width: number,
+	palette: AtelierPalette,
+	role: PaletteRole = "primary",
+	labelRole: PaletteRole = "muted",
+	progress?: number,
+): string {
+	const left = truncateToWidth(label, Math.min(LABEL_COLUMN_WIDTH, Math.max(0, width - 8)), "…");
+	const right = truncateToWidth(value, Math.max(0, width - visibleWidth(left) - 1), "…");
+	const meterWidth = width - visibleWidth(left) - visibleWidth(right) - 2;
+	if (progress !== undefined && meterWidth >= 4) {
+		return `${palette.paint(labelRole, left)} ${progressMeter(progress * 100, meterWidth, palette, role)} ${palette.paint(role, right)}`;
+	}
+	return truncateToWidth(
+		`${palette.paint(labelRole, left)}${" ".repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(right)))}${palette.paint(role, right)}`,
+		width,
+		"",
+	);
 }
 
 function agentRows(
 	snapshot: SidebarSnapshot,
-	layout: SidebarLayout,
-	contentWidth: number,
+	width: number,
 	palette: AtelierPalette,
 	theme: ThemeLike,
 ): string[] {
-	const activity = `${snapshot.activity.slice(0, 1).toUpperCase()}${snapshot.activity.slice(1)}`;
-	const workingLabel =
-		snapshot.activity === "working" && snapshot.workingLabel
-			? sanitize(snapshot.workingLabel).toLowerCase()
-			: "";
-	const activityText = workingLabel ? `${activity} · ${workingLabel}` : activity;
-	const status = theme.bold(
-		palette.paint(
-			activityRole(snapshot.activity),
-			`${activitySymbol(snapshot.activity)} ${activityText || "—"}`,
-		),
-	);
-	const model = valueRow(snapshot.modelId, palette, "primary");
-	const provider = snapshot.provider ? palette.paint("muted", display(snapshot.provider).toUpperCase()) : "";
-	const thinking = snapshot.thinkingLevel
-		? palette.paint("primary", display(snapshot.thinkingLevel).toUpperCase())
-		: "";
-	const access =
-		snapshot.modelId || snapshot.provider
-			? palette.paint(
-					snapshot.metrics.subscription ? "ready" : "muted",
-					snapshot.metrics.subscription ? "SUBSCRIPTION" : "METERED",
-				)
-			: "";
-	const separator = ` ${palette.paint("dim", "·")} `;
-
-	if (layout.compact) {
-		const rows = [status, model];
-		if (provider) rows.push(provider);
-		const secondary = [thinking, access].filter(Boolean);
-		if (secondary.length > 0) rows.push(secondary.join(separator));
-		return rows;
-	}
-
-	const metadata = [provider, thinking, access].filter(Boolean);
+	const working = snapshot.activity === "working";
+	const label = working ? "Working" : "Ready";
+	const phrase = working && snapshot.workingLabel ? ` · ${sanitizeInline(snapshot.workingLabel)}` : "";
+	const knownModel = Boolean(snapshot.modelId || snapshot.provider);
 	return [
-		spacedRow(status, model, contentWidth),
-		metadata.length > 0 ? metadata.join(separator) : palette.paint("dim", "—"),
+		theme.bold(palette.paint(snapshot.activity, `${working ? "◆" : "●"} ${label}${phrase}`)),
+		theme.bold(valueRow(snapshot.modelId, palette, "primary")),
+		valueRow(snapshot.provider, palette, "muted"),
+		labeledRow(
+			"Thinking",
+			snapshot.thinkingLevel ? sanitizeInline(snapshot.thinkingLevel) || PLACEHOLDER : PLACEHOLDER,
+			width,
+			palette,
+			snapshot.thinkingLevel ? "primary" : "dim",
+		),
+		labeledRow(
+			"Billing",
+			knownModel ? (snapshot.metrics.subscription ? "Subscription" : "Metered") : PLACEHOLDER,
+			width,
+			palette,
+			knownModel && snapshot.metrics.subscription ? "ready" : "muted",
+		),
 	];
 }
 
-function pulseIndicator(pulse: WorkspacePulseState): { symbol: string; role: PaletteRole } {
-	if (pulse.status === "conflict") return { symbol: "✕", role: "error" };
-	if (pulse.status === "changed") return { symbol: "▲", role: "warning" };
-	if (pulse.status === "stale") return { symbol: "~", role: "warning" };
-	if (pulse.status === "clean") return { symbol: "", role: "ready" };
-	return { symbol: "", role: "dim" };
-}
+/** nf-oct-git_branch, matching the footer's Git icon. */
+const BRANCH_ICON = "";
 
-function formatPulseCount(value: number): string {
-	const count = finiteCount(value);
-	if (count < 1_000) return count.toString();
-	if (count < 1_000_000) return `${(count / 1_000).toFixed(count < 10_000 ? 1 : 0)}k`;
-	return `${(count / 1_000_000).toFixed(count < 10_000_000 ? 1 : 0)}M`;
-}
-
-interface WorkspacePulseRows {
-	core: string[];
-	details: string[];
-}
+const PULSE_STATUS_LABEL = {
+	clean: "Clean",
+	stale: "Stale",
+	conflict: "Conflicts",
+	changed: "Modified",
+} as const;
 
 function workspacePulseRows(
 	pulse: WorkspacePulseState,
-	layout: SidebarLayout,
+	width: number,
 	palette: AtelierPalette,
-): WorkspacePulseRows {
-	if (pulse.status === "inspecting") return { core: [palette.paint("muted", "inspecting…")], details: [] };
-	if (pulse.status === "not-repo")
-		return { core: [palette.paint("dim", "not a Git repository")], details: [] };
-	if (pulse.status === "unavailable")
-		return { core: [palette.paint("warning", "Git unavailable")], details: [] };
-	if (!("data" in pulse)) return { core: [], details: [] };
-
-	const { snapshot } = pulse.data;
-	if (pulse.status === "clean") return { core: [palette.paint("ready", "✓ clean")], details: [] };
-	const tracked = `${formatPulseCount(snapshot.trackedFiles)} tracked`;
-	const lines = `+${formatPulseCount(snapshot.linesAdded)}  −${formatPulseCount(snapshot.linesRemoved)}`;
-	const role = pulse.status === "stale" ? "warning" : "primary";
-	const prefix = pulse.status === "stale" ? "~ stale · " : "";
-	const core = layout.compact
-		? [palette.paint(role, `${prefix}${tracked}`), palette.paint(role, lines)]
-		: [palette.paint(role, `${prefix}${tracked}  ${lines}`)];
-	if (snapshot.conflicts > 0)
-		core.push(palette.paint("error", `${finiteCount(snapshot.conflicts)} conflicts`));
-	const details = [
-		snapshot.untrackedFiles > 0
-			? layout.compact
-				? `?${formatPulseCount(snapshot.untrackedFiles)}`
-				: `${formatPulseCount(snapshot.untrackedFiles)} untracked`
-			: "",
-		snapshot.binaryFiles > 0
-			? layout.compact
-				? `bin${formatPulseCount(snapshot.binaryFiles)}`
-				: `${formatPulseCount(snapshot.binaryFiles)} binary`
-			: "",
-		snapshot.submodules > 0
-			? layout.compact
-				? `sub${formatPulseCount(snapshot.submodules)}`
-				: `${formatPulseCount(snapshot.submodules)} submodule`
-			: "",
-	].filter(Boolean);
-	return { core, details: details.length > 0 ? [palette.paint("muted", details.join(" · "))] : [] };
+): { core: string[]; details: string[] } {
+	switch (pulse.status) {
+		case "inspecting":
+			return { core: [palette.paint("muted", "inspecting…")], details: [] };
+		case "not-repo":
+			return { core: [palette.paint("dim", "not a Git repository")], details: [] };
+		case "unavailable":
+			return { core: [palette.paint("warning", "Git unavailable")], details: [] };
+	}
+	const git = pulse.data.snapshot;
+	const clean = pulse.status === "clean";
+	const statusRole = pulse.status === "conflict" ? "error" : clean ? "muted" : "warning";
+	const core = [labeledRow("Git", PULSE_STATUS_LABEL[pulse.status], width, palette, statusRole)];
+	if (!clean) {
+		const files = `${formatTokens(git.trackedFiles)} ${git.trackedFiles === 1 ? "file" : "files"}`;
+		const added = `+${formatTokens(git.linesAdded)}`;
+		const removed = `−${formatTokens(git.linesRemoved)}`;
+		const lines = `${palette.paint("chartGreen", added)}  ${palette.paint("error", removed)}`;
+		// One "4 files  +54  −20" row when it fits, otherwise files and lines on their own rows.
+		if (visibleWidth(`Changed ${files}  ${added}  ${removed}`) <= width)
+			core.push(labeledRow("Changed", `${files}  ${lines}`, width, palette));
+		else core.push(labeledRow("Changed", files, width, palette), labeledRow("Lines", lines, width, palette));
+	}
+	if (git.conflicts > 0)
+		core.push(labeledRow("Conflicts", formatTokens(git.conflicts), width, palette, "error"));
+	const details = (
+		[
+			["Untracked", git.untrackedFiles],
+			["Binary", git.binaryFiles],
+			["Submodules", git.submodules],
+		] as const
+	)
+		.filter(([, count]) => count > 0)
+		.map(([label, count]) => labeledRow(label, formatTokens(count), width, palette));
+	return { core, details };
 }
 
-interface WorkspaceRows {
-	identity: string[];
-	location: string[];
-	pulseCore: string[];
-	pulseDetails: string[];
-	session: string[];
-}
-
-function workspaceRows(
-	snapshot: SidebarSnapshot,
-	layout: SidebarLayout,
-	palette: AtelierPalette,
-): WorkspaceRows {
-	const project = valueRow(snapshot.projectName, palette, "primary");
-	const branch = snapshot.branch ? palette.paint("accent", display(snapshot.branch)) : "";
-	const indicator = pulseIndicator(snapshot.workspacePulse);
-	const gitState = branch && indicator.symbol ? palette.paint(indicator.role, indicator.symbol) : "";
-	const identity = branch ? `${project} ${palette.paint("dim", "·")} ${branch} ${gitState}` : project;
-	const identityRows = layout.compact ? [project, ...(branch ? [`${branch} ${gitState}`] : [])] : [identity];
-	const pulseData = workspacePulseData(snapshot.workspacePulse);
-	const location = pulseData?.relativeCwd
-		? [palette.paint("muted", `./${sanitize(pulseData.relativeCwd)}`)]
-		: pulseData
-			? []
-			: [palette.paint("muted", shortPath(snapshot.cwd))];
-	const pulse = workspacePulseRows(snapshot.workspacePulse, layout, palette);
-	const sessionName = snapshot.sessionName ? sanitize(snapshot.sessionName) : "";
-	const session = [
-		...(sessionName ? [palette.paint("primary", sessionName)] : []),
-		`${palette.paint("primary", `${finiteCount(snapshot.branchEntryCount)} entries`)} ${palette.paint(
-			"dim",
-			"·",
-		)} ${palette.paint(snapshot.persisted ? "ready" : "muted", snapshot.persisted ? "persisted" : "ephemeral")}`,
-	];
-	return {
-		identity: identityRows,
-		location,
-		pulseCore: pulse.core,
-		pulseDetails: pulse.details,
-		session,
-	};
-}
-
-function contextRole(snapshot: SidebarSnapshot, config: AtelierConfig): PaletteRole {
-	const percent = snapshot.metrics.contextPercent;
-	if (percent === null || !Number.isFinite(percent)) return "dim";
-	if (percent >= config.contextDanger) return "error";
-	if (percent >= config.contextWarning) return "warning";
-	return "context";
-}
-
-function spacedRow(left: string, right: string, width: number): string {
-	const safeWidth = Math.max(0, Math.trunc(width));
-	const rightWidth = visibleWidth(right);
-	const leftMax = Math.max(0, safeWidth - rightWidth - 1);
-	const safeLeft = truncateToWidth(left, leftMax, "");
-	const gap = " ".repeat(Math.max(1, safeWidth - visibleWidth(safeLeft) - rightWidth));
-	return truncateToWidth(`${safeLeft}${gap}${right}`, safeWidth, "");
+/** Context rests in its own hue in the sidebar; the warning and danger roles stay shared. */
+function sidebarContextRole(percent: number | null, config: AtelierConfig): PaletteRole {
+	const role = contextRole(percent, config, "dim");
+	return role === "context" ? "cache" : role;
 }
 
 function contextRows(
 	snapshot: SidebarSnapshot,
 	config: AtelierConfig,
-	contentWidth: number,
-	layout: SidebarLayout,
+	width: number,
 	palette: AtelierPalette,
+	theme: ThemeLike,
 ): string[] {
-	const mc = snapshot.extensionStatuses.map(sanitize).find(status => /^mc:\s/i.test(status));
-	// Preserve MC's own pressure calculation; do not infer its input budget from Pi's window.
+	const mc = snapshot.extensionStatuses.map(sanitizeInline).find(status => /^mc:\s/i.test(status));
 	const mcRows = mc
 		? mc.replace(/^mc:\s*/i, "").split(" · ").map((part, index) =>
 			palette.paint("muted", `${index === 0 ? "MC " : "Historian "}${part}`))
 		: [palette.paint("dim", "MC — status unavailable")];
 	const { metrics } = snapshot;
-	const available =
-		metrics.contextTokens !== null &&
-		Number.isFinite(metrics.contextTokens) &&
-		metrics.contextPercent !== null &&
-		Number.isFinite(metrics.contextPercent);
-	if (!available) {
+	if (metrics.contextTokens === null || metrics.contextPercent === null) {
 		return [palette.paint("dim", "Pi context unavailable"), ...mcRows];
 	}
-
-	const role = contextRole(snapshot, config);
-	const usage = `${formatTokens(metrics.contextTokens ?? 0)} / ${
-		metrics.contextWindow > 0 ? formatTokens(metrics.contextWindow) : "—"
-	}`;
-	const percent = `${metrics.contextPercent?.toFixed(1)}%`;
-	const meterWidth = layout.compact
-		? Math.max(1, Math.min(10, contentWidth - 2))
-		: Math.max(1, Math.min(10, contentWidth - visibleWidth(usage) - visibleWidth(percent) - 4));
-	const filled = Math.min(
-		meterWidth,
-		Math.max(0, Math.round(((metrics.contextPercent ?? 0) / 100) * meterWidth)),
-	);
-	const meter = `${palette.paint("dim", "[")}${palette.paint(role, "■".repeat(filled))}${palette.paint(
-		"dim",
-		"·".repeat(Math.max(0, meterWidth - filled)),
-	)}${palette.paint("dim", "]")}`;
-	return [spacedRow(palette.paint(role, `Pi ${usage}`), palette.paint(role, percent), contentWidth), meter, ...mcRows];
+	const role = sidebarContextRole(metrics.contextPercent, config);
+	const percent = Math.max(0, metrics.contextPercent);
+	const percentText = `${percent.toFixed(1)}%`;
+	const percentWidth = Math.max(6, visibleWidth(percentText));
+	const meterWidth = Math.max(0, width - percentWidth - 2);
+	const meter = progressMeter(percent, meterWidth, palette, role);
+	const percentage = theme.bold(palette.paint(role, percentText.padStart(percentWidth)));
+	const usage = `${formatTokens(metrics.contextTokens)} / ${metrics.contextWindow > 0 ? formatTokens(metrics.contextWindow) : PLACEHOLDER}`;
+	return [
+		meterWidth > 0 ? `${meter}  ${percentage}` : percentage,
+		labeledRow("Pi tokens", usage, width, palette, "muted"),
+		...mcRows,
+	];
 }
 
-const currencyDecimals = (value: number): number =>
-	Number.isFinite(value) ? Math.min(6, Math.max(0, Math.trunc(value))) : 0;
-
-function formatUsageTokens(count: number): string {
-	const safe = Number.isFinite(count) ? Math.max(0, count) : 0;
-	if (safe < 1_000) return Math.trunc(safe).toString();
-	if (safe < 1_000_000) return `${(safe / 1_000).toFixed(1)}k`;
-	if (safe < 1_000_000_000) return `${(safe / 1_000_000).toFixed(1)}M`;
-	return `${(safe / 1_000_000_000).toFixed(1)}B`;
-}
-
-function metricValue(label: string, value: string, palette: AtelierPalette, role: PaletteRole): string {
-	return `${palette.paint("muted", label)} ${palette.paint(role, value)}`;
-}
-
-function metricPairRows(
-	left: string,
-	right: string,
-	contentWidth: number,
-	layout: SidebarLayout,
+function progressMeter(
+	percent: number,
+	meterWidth: number,
 	palette: AtelierPalette,
-): string[] {
-	const separator = layout.compact ? ` ${palette.paint("dim", "·")} ` : "  ";
-	const inline = `${left}${separator}${right}`;
-	return visibleWidth(inline) <= contentWidth ? [inline] : [left, right];
+	role: PaletteRole,
+): string {
+	const units = Math.min(
+		meterWidth * 8,
+		Math.max(percent > 0 ? 1 : 0, Math.round((percent * meterWidth * 8) / 100)),
+	);
+	const full = Math.floor(units / 8);
+	const fraction = units % 8;
+	const fill = "█".repeat(full) + (fraction ? "▏▎▍▌▋▊▉"[fraction - 1] : "");
+	return `${palette.paint(role, fill)}${palette.paint("dim", "░".repeat(meterWidth - full - (fraction ? 1 : 0)))}`;
+}
+
+/** Usage counts keep one decimal (and reach billions) where the rail rounds harder. */
+function formatUsageTokens(count: number): string {
+	if (count < 1_000) return Math.trunc(count).toString();
+	if (count < 1_000_000) return `${(count / 1_000).toFixed(1)}k`;
+	if (count < 1_000_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+	return `${(count / 1_000_000_000).toFixed(1)}B`;
 }
 
 function usageRows(
 	snapshot: SidebarSnapshot,
 	config: AtelierConfig,
-	contentWidth: number,
-	layout: SidebarLayout,
+	width: number,
 	palette: AtelierPalette,
 ): string[] {
 	const { metrics } = snapshot;
-	if (!metrics.usageAvailable && !metrics.costAvailable) return [];
-
 	const rows: string[] = [];
 	if (metrics.usageAvailable) {
+		const hit = metrics.cacheHitPercent === undefined ? undefined : `${metrics.cacheHitPercent.toFixed(1)}%`;
 		rows.push(
-			...metricPairRows(
-				metricValue("In", formatUsageTokens(metrics.input), palette, "input"),
-				metricValue("Out", formatUsageTokens(metrics.output), palette, "output"),
-				contentWidth,
-				layout,
-				palette,
-			),
-		);
-		const hit =
-			metrics.cacheHitPercent !== undefined && Number.isFinite(metrics.cacheHitPercent)
-				? `${metrics.cacheHitPercent.toFixed(1)}%`
-				: "—";
-		rows.push(
-			...metricPairRows(
-				metricValue("Cache", formatUsageTokens(metrics.cacheRead), palette, "cache"),
-				layout.compact
-					? palette.paint(hit === "—" ? "dim" : "cache", hit)
-					: metricValue("Hit", hit, palette, hit === "—" ? "dim" : "cache"),
-				contentWidth,
-				layout,
-				palette,
-			),
+			labeledRow("Input", formatUsageTokens(metrics.input), width, palette, "input"),
+			labeledRow("Output", formatUsageTokens(metrics.output), width, palette, "output"),
+			labeledRow("Cache read", formatUsageTokens(metrics.cacheRead), width, palette, "cache"),
+			labeledRow("Cache hit", hit ?? PLACEHOLDER, width, palette, hit ? "primary" : "dim"),
 		);
 	}
 	if (metrics.costAvailable) {
-		const cost = `$${Math.max(0, Number.isFinite(metrics.cost) ? metrics.cost : 0).toFixed(
-			currencyDecimals(config.currencyDecimals),
-		)}`;
-		rows.push(metricValue("Cost", cost, palette, "cost"));
+		rows.push(
+			labeledRow("Cost", `$${Math.max(0, metrics.cost).toFixed(config.currencyDecimals)}`, width, palette),
+		);
 	}
 	return rows;
 }
 
-function toolsStatusRows(
+function subagentRows(
 	snapshot: SidebarSnapshot,
-	showToolNames: boolean,
-	contentWidth: number,
+	config: AtelierConfig,
+	width: number,
 	palette: AtelierPalette,
+	chartGraphics: SubagentCostChartGraphics,
 ): string[] {
-	const disclosure = showToolNames ? "▾" : "▸";
+	const usage = snapshot.subagentUsage;
+	if (!usage || (!usage.runs.length && !usage.unavailable && !usage.pending && !usage.limited)) return [];
 	return [
-		spacedRow(
-			palette.paint(
-				"primary",
-				`${finiteCount(snapshot.activeToolCount)} / ${finiteCount(snapshot.availableToolCount)} active`,
-			),
-			palette.paint("dim", disclosure),
-			contentWidth,
-		),
+		...subagentCostChart(usage, width, config.currencyDecimals, config.nerdFont, palette, chartGraphics),
+		...(usage.pending ? [palette.paint("dim", "Running · curves update on reply")] : []),
+		...(usage.unavailable || usage.limited
+			? [palette.paint("warning", "Partial · metadata unavailable")]
+			: []),
+		palette.paint("dim", "/ui usage · expand graph"),
 	];
 }
 
@@ -538,16 +339,12 @@ function activeToolNameRows(
 	palette: AtelierPalette,
 ): string[] {
 	const names = snapshot.activeToolNames.map((name) => palette.paint("primary", name));
-	if (names.length === 0) return [];
-
-	const leftColumnWidth = names.reduce(
-		(maximum, name, index) => (index % 2 === 0 ? Math.max(maximum, visibleWidth(name)) : maximum),
-		0,
-	);
-	const rightColumnWidth = names.reduce(
-		(maximum, name, index) => (index % 2 === 1 ? Math.max(maximum, visibleWidth(name)) : maximum),
-		0,
-	);
+	let leftColumnWidth = 0;
+	let rightColumnWidth = 0;
+	for (const [index, name] of names.entries()) {
+		if (index % 2 === 0) leftColumnWidth = Math.max(leftColumnWidth, visibleWidth(name));
+		else rightColumnWidth = Math.max(rightColumnWidth, visibleWidth(name));
+	}
 	const columnGap = "  ";
 	if (leftColumnWidth + visibleWidth(columnGap) + rightColumnWidth > contentWidth) return names;
 
@@ -555,7 +352,7 @@ function activeToolNameRows(
 	for (let index = 0; index < names.length; index += 2) {
 		const left = names[index] ?? "";
 		const right = names[index + 1];
-		rows.push(right === undefined ? left : `${padToWidth(left, leftColumnWidth)}${columnGap}${right}`);
+		rows.push(right === undefined ? left : `${fitToWidth(left, leftColumnWidth)}${columnGap}${right}`);
 	}
 	return rows;
 }
@@ -580,8 +377,8 @@ function todosRows(snapshot: SidebarSnapshot, palette: AtelierPalette, contentWi
 		const id = palette.paint("accent", `#${todo.id}`);
 		const text =
 			todo.status === "completed"
-				? palette.paint("dim", sanitize(todo.text))
-				: palette.paint("primary", sanitize(todo.text));
+				? palette.paint("dim", sanitizeInline(todo.text))
+				: palette.paint("primary", sanitizeInline(todo.text));
 		// 长文本按可用宽度换行，续行与正文左对齐（前缀是 `✓ #12 ` 的可见宽度）。
 		const prefixWidth = 2 + String(todo.id).length + 2;
 		const chunks = wrapTextWithAnsi(text, Math.max(8, contentWidth - prefixWidth));
@@ -592,48 +389,272 @@ function todosRows(snapshot: SidebarSnapshot, palette: AtelierPalette, contentWi
 	return rows;
 }
 
-const exceptionStatusPattern =
-	/\b(error|failed?|failure|warn(?:ing)?|offline|unavailable|blocked|degraded)\b/i;
+const ERROR_STATUS = /\b(error|failed?|failure|offline|unavailable)\b/i;
+const WARNING_STATUS = /\b(warn(?:ing)?|blocked|degraded)\b/i;
 
-function statusDetailPanelRole(snapshot: SidebarSnapshot): PaletteRole {
-	return snapshot.extensionStatuses.some((status) =>
-		/\b(error|failed?|failure|offline|unavailable)\b/i.test(sanitize(status)),
-	)
-		? "error"
-		: "warning";
+/** Extension statuses that need attention, most severe kind first. */
+function statusAlerts(snapshot: SidebarSnapshot): { role: "error" | "warning"; text: string }[] {
+	return snapshot.extensionStatuses
+		.map(sanitizeInline)
+		.flatMap((text): { role: "error" | "warning"; text: string }[] => {
+			if (ERROR_STATUS.test(text)) return [{ role: "error", text }];
+			if (WARNING_STATUS.test(text)) return [{ role: "warning", text }];
+			return [];
+		});
 }
 
-function statusDetailRows(snapshot: SidebarSnapshot, palette: AtelierPalette): string[] {
-	const statuses = snapshot.extensionStatuses
-		.map(sanitize)
-		.filter((status) => status && exceptionStatusPattern.test(status));
-	if (statuses.length === 0) return [];
+const TOOL_STATUS = {
+	running: { role: "working", glyph: "◐" },
+	done: { role: "ready", glyph: "✓" },
+	failed: { role: "error", glyph: "✗" },
+} as const satisfies Record<ToolActivity["status"], { role: PaletteRole; glyph: string }>;
+
+const MIN_TOOL_SUMMARY_COLUMNS = 6;
+
+/** Shared across rows so summaries line up in one column. */
+function toolNameWidth(tools: readonly ToolActivity[], contentWidth: number): number {
+	const widest = Math.max(4, ...tools.map((tool) => visibleWidth(tool.name || "tool")));
+	return Math.min(widest, 10, Math.max(0, contentWidth));
+}
+
+function toolActivityRow(
+	tool: ToolActivity,
+	contentWidth: number,
+	nameWidth: number,
+	palette: AtelierPalette,
+	now: number,
+	extraLive = 0,
+): string {
+	const status = TOOL_STATUS[tool.status];
+	const live = tool.status === "running";
+	const elapsed = tool.durationMs ?? now - tool.startedAt;
+	// Successful tools under a second carry no timing worth reading; failures always keep theirs.
+	const duration = tool.status !== "done" || elapsed >= 1_000 ? formatDuration(elapsed) : "";
+	const trailing = live && extraLive > 0 ? `${duration} · +${extraLive}` : duration;
+	const trailingWidth = trailing ? visibleWidth(trailing) + 1 : 0;
+	// Glyph and trailing timing are kept whole. On narrow rows the name gives way
+	// first, then the summary is dropped rather than shown as a lone ellipsis.
+	const available = Math.max(0, contentWidth - trailingWidth - 2);
+	let fittedNameWidth = Math.min(
+		nameWidth,
+		Math.max(Math.min(4, available), available - MIN_TOOL_SUMMARY_COLUMNS - 1),
+	);
+	let summaryWidth = available - fittedNameWidth - 1;
+	if (summaryWidth < 3) {
+		fittedNameWidth = Math.min(nameWidth, available);
+		summaryWidth = 0;
+	}
+	const name = palette.paint(
+		"dim",
+		sanitizeInline(truncateToWidth(tool.name || "tool", fittedNameWidth, "…")),
+	);
+	const summary = tool.summary
+		? palette.paint(
+				tool.status === "done" ? "muted" : "primary",
+				sanitizeInline(truncateToWidth(tool.summary, summaryWidth, "…")),
+			)
+		: palette.paint("dim", PLACEHOLDER);
+	const row = [
+		palette.paint(status.role, status.glyph),
+		fittedNameWidth > 0 ? fitToWidth(name, fittedNameWidth) : "",
+		summaryWidth > 0 ? fitToWidth(summary, summaryWidth) : "",
+		trailing ? palette.paint(tool.status === "done" ? "dim" : status.role, trailing) : "",
+	]
+		.filter(Boolean)
+		.join(" ");
+	return truncateToWidth(row, contentWidth, "");
+}
+
+function runPhaseRole(activity: RunActivitySnapshot): PaletteRole {
+	if (activity.phase === "running") return "working";
+	return activity.failedCount > 0 ? "error" : "chartGreen";
+}
+
+function runSummaryRow(
+	activity: RunActivitySnapshot,
+	width: number,
+	palette: AtelierPalette,
+	now: number,
+): string {
+	const role = runPhaseRole(activity);
+	const settled = activity.phase === "settled";
+	const label = settled
+		? "Last run"
+		: activity.turnNumber === undefined
+			? "Run"
+			: `Turn ${activity.turnNumber}`;
+	const duration = formatDuration(
+		settled ? (activity.durationMs ?? now - (activity.startedAt ?? now)) : now - (activity.startedAt ?? now),
+	);
+	return labeledRow(label, duration, width, palette, role, role);
+}
+
+function toolCountRow(activity: RunActivitySnapshot, width: number, palette: AtelierPalette): string {
+	const { completedCount, failedCount } = activity;
+	const value = failedCount > 0 ? `${completedCount} done · ${failedCount} failed` : `${completedCount} done`;
+	return labeledRow("Tools", value, width, palette, failedCount > 0 ? "error" : "muted");
+}
+
+function responsePerformanceRows(
+	activity: RunActivitySnapshot,
+	width: number,
+	palette: AtelierPalette,
+): string[] {
+	const { ttft, tps } = responsePerformanceValues(activity.performance);
 	return [
-		...statuses.map((status) => {
-			const role: PaletteRole = /\b(error|failed?|failure|offline|unavailable)\b/i.test(status)
-				? "error"
-				: "warning";
-			return palette.paint(role, `${role === "error" ? "✕" : "▲"} ${status}`);
-		}),
+		labeledRow("First token", ttft.text, width, palette, ttft.available ? "output" : "dim"),
+		labeledRow(
+			width < 25 ? "Speed" : "Output speed",
+			tps.available ? `${tps.text} tok/s` : tps.text,
+			width,
+			palette,
+			tps.available ? "output" : "dim",
+		),
 	];
 }
 
-interface ActivityGroups {
-	core: string[];
-	active: Array<{ id: string; row: string }>;
-	recent: Array<{ id: string; row: string }>;
-	aggregate: string[];
+/**
+ * Lower ranks give way first when the sidebar is short. Required groups use
+ * Infinity and are only trimmed row by row after every optional group is gone.
+ */
+const DROP_RANK = {
+	toolName: 0,
+	session: 4,
+	location: 5,
+	pulseDetails: 6,
+	toolsStatus: 10,
+	subagents: 18,
+	usage: 20,
+	contributed: 25,
+	workspace: 30,
+	olderRecentTool: 50,
+	aggregate: 60,
+	latestRecentTool: 70,
+	activeTool: 75,
+	alerts: 80,
+	todos: 90,
+	required: Number.POSITIVE_INFINITY,
+} as const;
+
+interface PanelChrome {
+	id: string;
+	title: string;
+	role: PaletteRole;
+	jewel?: Jewel;
 }
 
 interface SidebarGroup {
 	name: string;
-	panel?: string;
-	panelId?: string;
-	panelRole?: PaletteRole;
-	panelJewel?: "✦" | "✧";
+	/** Panel chrome shared by adjacent groups with the same panel ID. */
+	panel?: PanelChrome;
 	rows: string[];
-	required: boolean;
 	dropRank: number;
+	/** Shown only once one of these groups has been dropped; a summary of rows still visible adds nothing. */
+	summarizes?: readonly string[];
+}
+
+function activityGroups(
+	snapshot: SidebarSnapshot,
+	contentWidth: number,
+	palette: AtelierPalette,
+	now: number,
+	panel: PanelChrome,
+): SidebarGroup[] {
+	const activity = snapshot.runActivity;
+	const liveTurn = activity.phase === "running";
+	const activeIds = new Set(activity.activeTools.map((tool) => tool.id));
+	const sortedActive = activity.activeTools
+		.map((tool, index) => ({ index, tool }))
+		.sort((left, right) => left.tool.startedAt - right.tool.startedAt || left.index - right.index)
+		.map(({ tool }) => tool);
+	const visibleActive = liveTurn ? sortedActive.slice(-1) : sortedActive;
+	const extraLive = sortedActive.length - visibleActive.length;
+	const recent = liveTurn ? [] : activity.recentTools.filter((tool) => !activeIds.has(tool.id)).slice(0, 3);
+	const nameWidth = toolNameWidth([...visibleActive, ...recent], contentWidth);
+	const toolCount = activity.completedCount + activity.failedCount;
+	const aggregate = liveTurn || toolCount === 0 ? [] : [toolCountRow(activity, contentWidth, palette)];
+	// When every counted tool has its own row, the count only matters once a row is dropped for height.
+	const summarizes =
+		toolCount > recent.length ? undefined : recent.map((tool) => `activityRecent:${tool.id}`);
+	return [
+		{
+			name: "activityCore",
+			panel,
+			rows: [
+				...(activity.phase === "idle" ? [] : [runSummaryRow(activity, contentWidth, palette, now)]),
+				...responsePerformanceRows(activity, contentWidth, palette),
+			],
+			dropRank: DROP_RANK.required,
+		},
+		...visibleActive.map((tool, index) => ({
+			name: `activityActive:${tool.id}`,
+			panel,
+			rows: [toolActivityRow(tool, contentWidth, nameWidth, palette, now, extraLive)],
+			dropRank: DROP_RANK.activeTool + (visibleActive.length - index) / 100,
+		})),
+		...recent.map((tool, index) => ({
+			name: `activityRecent:${tool.id}`,
+			panel,
+			rows: [toolActivityRow(tool, contentWidth, nameWidth, palette, now)],
+			dropRank:
+				index === 0 ? DROP_RANK.latestRecentTool : DROP_RANK.olderRecentTool + (recent.length - index - 1),
+		})),
+		{
+			name: "activityAggregate",
+			panel,
+			rows: aggregate,
+			dropRank: DROP_RANK.aggregate,
+			...(summarizes ? { summarizes } : {}),
+		},
+	];
+}
+
+/** Each contiguous flat panel adds a header and spacer. */
+function measureGroups(groups: readonly SidebarGroup[]): number {
+	let height = 0;
+	let previous: SidebarGroup | undefined;
+	for (const group of groups) {
+		height += group.rows.length;
+		if (group.panel && group.panel.id !== previous?.panel?.id) height += 2;
+		previous = group;
+	}
+	return height;
+}
+
+function withoutRedundantSummaries(groups: readonly SidebarGroup[]): SidebarGroup[] {
+	const names = new Set(groups.map((group) => group.name));
+	return groups.filter((group) => !group.summarizes || group.summarizes.some((name) => !names.has(name)));
+}
+
+function composeGroups(groups: readonly SidebarGroup[], height: number): SidebarGroup[] {
+	let candidate = groups.filter((group) => group.rows.length > 0);
+	// Recount cheap row metadata after removal so newly adjacent groups share panel chrome.
+	// Painting happens only after selection, never for the discarded candidates.
+	while (measureGroups(withoutRedundantSummaries(candidate)) > height) {
+		let drop: SidebarGroup | undefined;
+		for (const group of withoutRedundantSummaries(candidate)) {
+			if (group.dropRank < (drop?.dropRank ?? DROP_RANK.required)) drop = group;
+		}
+		if (drop) {
+			const name = drop.name;
+			candidate = candidate.filter((group) => group.name !== name);
+			continue;
+		}
+		// Once optional panels are gone, reduce metadata before clipping the
+		// required Agent/Activity/Context hierarchy in a very short terminal.
+		const compact = [
+			{ name: "agent", minimum: 2 },
+			{ name: "activityCore", minimum: 1 },
+			{ name: "context", minimum: 1 },
+		].find(({ name, minimum }) =>
+			candidate.some((group) => group.name === name && group.rows.length > minimum),
+		);
+		if (!compact) break;
+		candidate = candidate.map((group) =>
+			group.name === compact.name ? { ...group, rows: group.rows.slice(0, -1) } : group,
+		);
+	}
+	return withoutRedundantSummaries(candidate);
 }
 
 function renderGroups(
@@ -643,228 +664,31 @@ function renderGroups(
 	theme: ThemeLike,
 ): string[] {
 	const rendered: string[] = [];
-	for (let index = 0; index < groups.length; ) {
+	let index = 0;
+	while (index < groups.length) {
 		const group = groups[index];
-		if (!group) break;
-		if (!group.panel) {
-			rendered.push(...group.rows);
+		if (!group?.panel) {
+			rendered.push(...(group?.rows ?? []));
 			index += 1;
 			continue;
 		}
-
+		const panel = group.panel;
 		const rows: string[] = [];
-		let next = index;
-		while (groups[next]?.panel === group.panel && groups[next]?.panelId === group.panelId) {
-			rows.push(...(groups[next]?.rows ?? []));
-			next += 1;
+		while (groups[index]?.panel?.id === panel.id) {
+			rows.push(...(groups[index]?.rows ?? []));
+			index += 1;
 		}
-		if (rows.length > 0) {
-			rendered.push(
-				...panelRows(
-					group.panel,
-					rows,
-					width,
-					palette,
-					theme,
-					group.panelRole ?? "accent",
-					group.panelJewel ?? "✦",
-				),
-			);
-		}
-		index = next;
+		rendered.push(...panelRows(panel.title, rows, width, palette, theme, panel.role, panel.jewel ?? "✦"));
 	}
 	return rendered;
 }
 
-function contributedRows(panel: SidebarPanelData, palette: AtelierPalette): string[] {
-	const rows = panel.rows.slice(0, SIDEBAR_PANEL_MAX_ROWS).map((row) => {
-		const text = sanitizeSidebarPanelText(
-			typeof row === "string" ? row : row.text,
-			SIDEBAR_PANEL_MAX_ROW_CHARS,
-		);
-		const role = typeof row === "string" ? panel.role : (row.role ?? panel.role);
-		return palette.paint((role ?? "primary") as SidebarPanelRole, text);
-	});
-	return rows.filter((row) => visibleWidth(row) > 0);
-}
-
-function durationForTool(tool: ToolActivity, now: number): string {
-	return formatDuration(tool.durationMs ?? Math.max(0, now - tool.startedAt));
-}
-
-function toolStatusRole(status: ToolActivity["status"]): PaletteRole {
-	if (status === "failed") return "error";
-	if (status === "running") return "working";
-	return "ready";
-}
-
-function toolStatusLabel(tool: ToolActivity, now: number): string {
-	const duration = durationForTool(tool, now);
-	if (tool.status === "running") return duration;
-	return `${tool.status} ${duration}`;
-}
-
-function toolActivityRow(
-	tool: ToolActivity,
-	contentWidth: number,
-	palette: AtelierPalette,
-	now: number,
-	extraLive = 0,
-): string {
-	const safeName = sanitize(tool.name) || "tool";
-	const safeSummary = sanitize(tool.summary);
-	const status =
-		extraLive > 0 && tool.status === "running"
-			? `${durationForTool(tool, now)} · +${finiteCount(extraLive)}`
-			: toolStatusLabel(tool, now);
-	const statusWidth = visibleWidth(status);
-	const nameWidth = Math.min(Math.max(visibleWidth(safeName), 4), 10, Math.max(0, contentWidth));
-	const summaryWidth = Math.max(0, contentWidth - nameWidth - statusWidth - 2);
-	const statusText = truncateToWidth(status, Math.max(0, contentWidth - nameWidth - summaryWidth - 2), "");
-	const row = `${padToWidth(palette.paint("muted", safeName), nameWidth)} ${padToWidth(
-		palette.paint(safeSummary ? "primary" : "dim", safeSummary || "—"),
-		summaryWidth,
-	)} ${palette.paint(toolStatusRole(tool.status), statusText)}`;
-	return truncateToWidth(row, contentWidth, "");
-}
-
-function runSummaryRow(activity: RunActivitySnapshot, palette: AtelierPalette, now: number): string {
-	if (activity.phase === "idle") return palette.paint("ready", "Ready");
-	const duration =
-		activity.phase === "settled"
-			? formatDuration(activity.durationMs ?? Math.max(0, now - (activity.startedAt ?? now)))
-			: formatDuration(Math.max(0, now - (activity.startedAt ?? now)));
-	const role: PaletteRole =
-		activity.phase === "running" ? "working" : activity.failedCount > 0 ? "error" : "ready";
-	if (activity.phase === "settled") return palette.paint(role, `Last run · ${duration}`);
-
-	const label = activity.turnNumber === undefined ? "Run" : `Turn ${finiteCount(activity.turnNumber)}`;
-	return palette.paint(role, `${label} · ${activity.phase} ${duration}`);
-}
-
-function responsePerformanceRow(activity: RunActivitySnapshot, palette: AtelierPalette): string {
-	return palette.paint("output", formatResponsePerformance(activity.performance));
-}
-
-function activityRows(
-	activity: RunActivitySnapshot,
-	contentWidth: number,
-	palette: AtelierPalette,
-	now: number,
-): ActivityGroups {
-	const liveTurn = activity.phase === "running";
-	const activeIds = new Set(activity.activeTools.map((tool) => tool.id));
-	const sortedActive = activity.activeTools
-		.map((tool, index) => ({ index, tool }))
-		.sort((left, right) => left.tool.startedAt - right.tool.startedAt || left.index - right.index)
-		.map(({ tool }) => tool);
-	const visibleActive = liveTurn ? sortedActive.slice(-1) : sortedActive;
-	const extraLive = liveTurn ? Math.max(0, sortedActive.length - visibleActive.length) : 0;
-	const active = visibleActive.map((tool) => ({
-		id: tool.id,
-		row: toolActivityRow(tool, contentWidth, palette, now, extraLive),
-	}));
-	const recent = liveTurn
-		? []
-		: activity.recentTools
-				.filter((tool) => !activeIds.has(tool.id))
-				.slice(0, 3)
-				.map((tool) => ({ id: tool.id, row: toolActivityRow(tool, contentWidth, palette, now) }));
-	const aggregateText = liveTurn ? "" : aggregateActivityText(activity);
-	return {
-		core: [runSummaryRow(activity, palette, now), responsePerformanceRow(activity, palette)],
-		active,
-		recent,
-		aggregate: aggregateText
-			? [palette.paint(activity.failedCount > 0 ? "error" : "ready", aggregateText)]
-			: [],
-	};
-}
-
-function aggregateActivityText(activity: RunActivitySnapshot): string {
-	const completed = finiteCount(activity.completedCount);
-	const failed = finiteCount(activity.failedCount);
-	if (completed === 0 && failed === 0) return "";
-	return `tools ${completed} done · ${failed} failed`;
-}
-
-function activitySidebarGroups(
-	snapshot: SidebarSnapshot,
-	contentWidth: number,
-	palette: AtelierPalette,
-	now: number,
-): SidebarGroup[] {
-	const groups = activityRows(snapshot.runActivity, contentWidth, palette, now);
-	const recentCount = groups.recent.length;
-	const panelRole: PaletteRole =
-		snapshot.runActivity.phase === "running"
-			? "working"
-			: snapshot.runActivity.failedCount > 0
-				? "error"
-				: "ready";
-	return [
-		{
-			name: "activityCore",
-			panel: "ACTIVITY",
-			panelId: "activity",
-			panelRole,
-			rows: groups.core,
-			required: true,
-			dropRank: Number.POSITIVE_INFINITY,
-		},
-		...groups.active.map((active, index, rows) => ({
-			name: `activityActive:${active.id}`,
-			panel: "ACTIVITY",
-			panelId: "activity",
-			panelRole,
-			rows: [active.row],
-			required: false,
-			dropRank: 35 + (rows.length - index) / 100,
-		})),
-		...groups.recent.map((recent, index) => ({
-			name: `activityRecent:${recent.id}`,
-			panel: "ACTIVITY",
-			panelId: "activity",
-			panelRole,
-			rows: [recent.row],
-			required: false,
-			dropRank: index === 0 ? 30 : 10 + (recentCount - index - 1),
-		})),
-		{
-			name: "activityAggregate",
-			panel: "ACTIVITY",
-			panelId: "activity",
-			panelRole,
-			rows: groups.aggregate,
-			required: false,
-			dropRank: 20,
-		},
-	].filter((group) => group.rows.length > 0);
-}
-
-function composeGroups(
-	groups: SidebarGroup[],
-	height: number,
-	width: number,
-	palette: AtelierPalette,
-	theme: ThemeLike,
-): SidebarGroup[] {
-	let candidate = groups.filter((group) => group.rows.length > 0);
-	while (renderGroups(candidate, width, palette, theme).length > height) {
-		let dropIndex = -1;
-		let dropRank = Number.POSITIVE_INFINITY;
-		for (const [index, group] of candidate.entries()) {
-			if (group.required || group.dropRank >= dropRank) continue;
-			dropRank = group.dropRank;
-			dropIndex = index;
-		}
-		if (dropIndex === -1) return candidate;
-		const dropName = candidate[dropIndex]?.name;
-		candidate = candidate.filter((group, index) =>
-			dropName ? group.name !== dropName : index !== dropIndex,
-		);
-	}
-	return candidate;
+export interface SidebarRenderOptions {
+	colorEnabled?: boolean;
+	now?: number;
+	resizing?: boolean;
+	chartGraphics?: SubagentCostChartGraphics;
+	dockHeight?: number;
 }
 
 export function renderSidebarLines(
@@ -873,212 +697,213 @@ export function renderSidebarLines(
 	theme: ThemeLike,
 	width: number,
 	height: number,
-	colorEnabled = true,
-	now = Date.now(),
-	resizing = false,
-	dockHeight = height,
+	{ colorEnabled = true, now = Date.now(), resizing = false, chartGraphics = {}, dockHeight = height }: SidebarRenderOptions = {},
 ): string[] {
 	const palette = createPalette(theme, colorEnabled);
 	const safeWidth = Math.max(0, Math.trunc(width));
 	const safeHeight = Math.max(0, Math.trunc(height));
 	if (safeWidth <= 0 || safeHeight <= 0) return [];
-	const contentWidth = Math.max(0, safeWidth - 2);
-	const panelContentWidth = Math.max(0, contentWidth - 4);
-	const layout = sidebarLayout(safeWidth, config);
-	const toolNameRows = layout.showToolNames ? activeToolNameRows(snapshot, panelContentWidth, palette) : [];
-	const workspace = workspaceRows(snapshot, layout, palette);
-	const groups: SidebarGroup[] = [
-		...(resizing
-			? [
-					{
-						name: "resize",
-						rows: [palette.paint("warning", "RESIZE · drag divider"), ""],
-						required: true,
-						dropRank: Number.POSITIVE_INFINITY,
-					},
-				]
-			: []),
-		...(config.showSidebarAgent
-			? [
-					{
-						name: "agent",
-						panel: "AGENT",
-						panelId: "agent",
-						panelRole: activityRole(snapshot.activity),
-						panelJewel:
-							snapshot.activity === "working" && Math.floor(now / 400) % 2 === 1
-								? ("✧" as const)
-								: ("✦" as const),
-						rows: agentRows(snapshot, layout, panelContentWidth, palette, theme),
-						required: true,
-						dropRank: Number.POSITIVE_INFINITY,
-					},
-				]
-			: []),
-		...activitySidebarGroups(snapshot, panelContentWidth, palette, now).map((group) => ({
-			...group,
-			required: group.name === "activityCore",
-			dropRank: group.name === "activityCore" ? Number.POSITIVE_INFINITY : group.dropRank + 40,
-		})),
-		{
-			name: "statusDetails",
-			panel: "ALERTS",
-			panelId: "alerts",
-			panelRole: statusDetailPanelRole(snapshot),
-			rows: statusDetailRows(snapshot, palette),
-			required: false,
-			dropRank: 80,
+	const contentWidth = safeWidth - 2;
+	const panelWidth = Math.max(0, contentWidth);
+	const alerts = statusAlerts(snapshot);
+	const builtinPanels: Record<BuiltinSidebarPanelId, () => SidebarGroup[]> = {
+		agent: () => [
+			{
+				name: "agent",
+				panel: {
+					id: "agent",
+					title: "AGENT",
+					role: snapshot.activity,
+					jewel:
+						snapshot.activity === "working" && Math.floor(now / SIDEBAR_ANIMATION_INTERVAL_MS) % 2 === 1
+							? "✧"
+							: "✦",
+				},
+				rows: agentRows(snapshot, panelWidth, palette, theme),
+				dropRank: DROP_RANK.required,
+			},
+		],
+		activity: () =>
+			activityGroups(snapshot, panelWidth, palette, now, {
+				id: "activity",
+				title: "ACTIVITY",
+				role: runPhaseRole(snapshot.runActivity),
+			}),
+		alerts: () => [
+			{
+				name: "alerts",
+				panel: {
+					id: "alerts",
+					title: "ALERTS",
+					role: alerts.some((alert) => alert.role === "error") ? "error" : "warning",
+				},
+				rows: alerts.map(({ role, text }) => palette.paint(role, `${role === "error" ? "✕" : "▲"} ${text}`)),
+				dropRank: DROP_RANK.alerts,
+			},
+		],
+		todos: () => [
+			{
+				name: "todos",
+				panel: { id: "todos", title: "TODOS", role: "accent" },
+				rows: todosRows(snapshot, palette, panelWidth),
+				dropRank: DROP_RANK.todos,
+			},
+		],
+		context: () => [
+			{
+				name: "context",
+				panel: {
+					id: "context",
+					title: "CONTEXT",
+					role: sidebarContextRole(snapshot.metrics.contextPercent, config),
+				},
+				rows: contextRows(snapshot, config, panelWidth, palette, theme),
+				dropRank: DROP_RANK.required,
+			},
+		],
+		workspace: () => {
+			const panel = { id: "workspace", title: "WORKSPACE", role: "accent" } as const;
+			const pulseData = workspacePulseData(snapshot.workspacePulse);
+			const pulse = workspacePulseRows(snapshot.workspacePulse, panelWidth, palette);
+			const location = pulseData
+				? pulseData.relativeCwd
+					? [palette.paint("muted", `./${sanitizeInline(pulseData.relativeCwd)}`)]
+					: []
+				: [
+						palette.paint(
+							"muted",
+							sanitizeInline(snapshot.cwd) ? displayHomePath(sanitizeInline(snapshot.cwd)) : PLACEHOLDER,
+						),
+					];
+			const sessionName = snapshot.sessionName ? sanitizeInline(snapshot.sessionName) || PLACEHOLDER : "";
+			return [
+				{
+					name: "workspaceCore",
+					panel,
+					rows: [
+						theme.bold(valueRow(snapshot.projectName, palette, "primary")),
+						// The branch takes the full row so long names are not cut short by a label column.
+						...(snapshot.branch
+							? [
+									palette.paint(
+										"accent",
+										`${config.nerdFont ? BRANCH_ICON : "⎇"} ${sanitizeInline(snapshot.branch) || PLACEHOLDER}`,
+									),
+								]
+							: []),
+					],
+					dropRank: DROP_RANK.workspace,
+				},
+				{ name: "workspaceLocation", panel, rows: location, dropRank: DROP_RANK.location },
+				{ name: "workspaceCore", panel, rows: pulse.core, dropRank: DROP_RANK.workspace },
+				{ name: "workspaceDetails", panel, rows: pulse.details, dropRank: DROP_RANK.pulseDetails },
+				{
+					name: "workspaceSession",
+					panel,
+					rows: [
+						...(sessionName ? [labeledRow("Session", sessionName, panelWidth, palette)] : []),
+						labeledRow("History", `${snapshot.branchEntryCount} entries`, panelWidth, palette),
+						labeledRow("Storage", snapshot.persisted ? "Saved" : "Temporary", panelWidth, palette, "muted"),
+					],
+					dropRank: DROP_RANK.session,
+				},
+			];
 		},
-		{
-			name: "todos",
-			panel: "TODOS",
-			panelId: "todos",
-			panelRole: "accent",
-			rows: config.showSidebarTodos ? todosRows(snapshot, palette, panelContentWidth) : [],
-			required: false,
-			dropRank: 90,
+		usage: () => [
+			{
+				name: "usage",
+				panel: { id: "usage", title: "USAGE", role: "chartGold" },
+				rows: usageRows(snapshot, config, panelWidth, palette),
+				dropRank: DROP_RANK.usage,
+			},
+		],
+		subagents: () => [
+			{
+				name: "subagentCostChart",
+				panel: { id: "subagents", title: "SUBAGENTS", role: "output" },
+				rows: subagentRows(snapshot, config, panelWidth, palette, chartGraphics),
+				dropRank: DROP_RANK.subagents,
+			},
+		],
+		tools: () => {
+			const panel = { id: "tools", title: "TOOLS", role: "chartPink" } as const;
+			const showToolNames = config.showSidebarToolNames;
+			const nameRows = showToolNames ? activeToolNameRows(snapshot, panelWidth, palette) : [];
+			return [
+				{
+					name: "toolsStatus",
+					panel,
+					rows: [
+						palette.paint("muted", `${snapshot.activeToolCount} / ${snapshot.availableToolCount} active ${showToolNames ? "▾" : "▸"}`),
+					],
+					dropRank: DROP_RANK.toolsStatus,
+				},
+				...nameRows.map((row, index) => ({
+					name: `activeToolNames:${index}`,
+					panel,
+					rows: [row],
+					dropRank: DROP_RANK.toolName + (nameRows.length - index) / 100,
+				})),
+			];
 		},
-		{
-			name: "context",
-			panel: "CONTEXT",
-			panelId: "context",
-			panelRole: contextRole(snapshot, config),
-			rows: contextRows(snapshot, config, panelContentWidth, layout, palette),
-			required: true,
-			dropRank: Number.POSITIVE_INFINITY,
-		},
-		{
-			name: "workspaceCore",
-			panel: "WORKSPACE",
-			panelId: "workspace",
-			panelRole: "accent",
-			rows: workspace.identity,
-			required: false,
-			dropRank: 30,
-		},
-		{
-			name: "workspaceLocation",
-			panel: "WORKSPACE",
-			panelId: "workspace",
-			panelRole: "accent",
-			rows: workspace.location,
-			required: false,
-			dropRank: 5,
-		},
-		{
-			name: "workspaceCore",
-			panel: "WORKSPACE",
-			panelId: "workspace",
-			panelRole: "accent",
-			rows: workspace.pulseCore,
-			required: false,
-			dropRank: 30,
-		},
-		{
-			name: "workspaceDetails",
-			panel: "WORKSPACE",
-			panelId: "workspace",
-			panelRole: "accent",
-			rows: workspace.pulseDetails,
-			required: false,
-			dropRank: 6,
-		},
-		{
-			name: "workspaceSession",
-			panel: "WORKSPACE",
-			panelId: "workspace",
-			panelRole: "accent",
-			rows: workspace.session,
-			required: false,
-			dropRank: 4,
-		},
-		{
-			name: "usage",
-			panel: "USAGE",
-			panelId: "usage",
-			panelRole: "output",
-			rows: usageRows(snapshot, config, panelContentWidth, layout, palette),
-			required: false,
-			dropRank: 20,
-		},
-		{
-			name: "toolsStatus",
-			panel: "TOOLS",
-			panelId: "tools",
-			panelRole: "cache",
-			rows: toolsStatusRows(snapshot, layout.showToolNames, panelContentWidth, palette),
-			required: false,
-			dropRank: 10,
-		},
-		...toolNameRows.map((row, index, rows) => ({
-			name: `activeToolNames:${index}`,
-			panel: "TOOLS",
-			panelId: "tools",
-			panelRole: "cache" as const,
-			rows: [row],
-			required: false,
-			dropRank: (rows.length - index) / 100,
-		})),
-	];
+	};
 
-	// Keep panel content grouped while making the user-owned order the only
-	// source of top-to-bottom composition. Contributed panels are available only
-	// when a current registry snapshot exists; their saved entries remain in the
-	// layout and are therefore still visible to Settings as unavailable.
-	const contributed = new Map((snapshot.sidebarPanels ?? []).map((panel) => [panel.id, panel]));
-	const grouped = new Map<string, SidebarGroup[]>();
-	for (const group of groups) {
-		const id = group.panelId;
-		if (!id) continue;
-		const list = grouped.get(id) ?? [];
-		list.push(group);
-		grouped.set(id, list);
-	}
-	const ordered: SidebarGroup[] = groups.filter((group) => !group.panel);
+	// The user-owned layout is the only source of top-to-bottom order, and only
+	// visible panels are built. Saved contributed panels without a current
+	// registration stay in the layout, so Settings can still list them as unavailable.
+	const contributed = new Map(snapshot.sidebarPanels.map((panel) => [panel.id, panel]));
+	const ordered: SidebarGroup[] = resizing
+		? [
+				{
+					name: "resize",
+					rows: [palette.paint("warning", "RESIZE · drag divider"), ""],
+					dropRank: DROP_RANK.required,
+				},
+			]
+		: [];
 	let availableVisible = false;
 	for (const entry of config.sidebarPanelLayout) {
 		if (!entry.visible) continue;
-		const builtin = BUILTIN_SIDEBAR_PANEL_IDS.includes(
-			entry.id as (typeof BUILTIN_SIDEBAR_PANEL_IDS)[number],
-		);
-		const panel = isSidebarPanelContributionId(entry.id) ? contributed.get(entry.id) : undefined;
-		if (builtin) {
+		if (isBuiltinSidebarPanelId(entry.id)) {
 			availableVisible = true;
-			ordered.push(...(grouped.get(entry.id) ?? []));
-		} else if (panel) {
-			availableVisible = true;
-			const rows = contributedRows(panel, palette);
-			ordered.push({
-				name: `contributed:${panel.id}`,
-				panel: sanitize(panel.title).toUpperCase() || panel.id,
-				panelId: panel.id,
-				panelRole: panel.role ?? "accent",
-				rows: rows.length > 0 ? rows : [palette.paint("dim", "No data")],
-				required: false,
-				dropRank: 25,
-			});
+			ordered.push(...builtinPanels[entry.id]());
+			continue;
 		}
+		const panel = contributed.get(entry.id);
+		if (!panel) continue;
+		availableVisible = true;
+		const rows = panel.keyValues?.length
+			? panel.keyValues.map((row) =>
+					labeledRow(
+						row.label,
+						row.value,
+						panelWidth,
+						palette,
+						row.valueRole ?? panel.role ?? "primary",
+						row.labelRole ?? "muted",
+						row.progress,
+					),
+				)
+			: panel.rows
+					.filter((row) => row.text)
+					.map((row) => palette.paint(row.role ?? panel.role ?? "primary", row.text));
+		ordered.push({
+			name: `contributed:${panel.id}`,
+			panel: { id: panel.id, title: (panel.title || panel.id).toUpperCase(), role: panel.role ?? "accent" },
+			rows: rows.length > 0 ? rows : [palette.paint("dim", "No data")],
+			dropRank: DROP_RANK.contributed,
+		});
 	}
 	if (!availableVisible) {
 		ordered.push({
 			name: "empty",
-			panel: "SIDEBAR",
-			panelId: "__empty__",
-			panelRole: "muted",
+			panel: { id: "__empty__", title: "SIDEBAR", role: "muted" },
 			rows: ["No available panels", "Open /ui Settings"],
-			required: true,
-			dropRank: Number.POSITIVE_INFINITY,
+			dropRank: DROP_RANK.required,
 		});
 	}
-	const composed = renderGroups(
-		composeGroups(ordered, safeHeight, contentWidth, palette, theme),
-		contentWidth,
-		palette,
-		theme,
-	);
-	// 可滚动侧栏：内容可以高于面板高度，交给外层 ScrollView 剪裁/滚动，不再为放不下而丢面板。
-	const dockTo = Math.max(Math.max(0, Math.trunc(dockHeight)), composed.length);
-	return renderDock(composed, safeWidth, dockTo, palette, resizing);
+	const composed = renderGroups(composeGroups(ordered, safeHeight), contentWidth, palette, theme);
+	return renderDock(composed, safeWidth, Math.max(dockHeight, composed.length), palette, resizing);
 }
 
 export interface SidebarComponentOptions {
@@ -1086,52 +911,49 @@ export interface SidebarComponentOptions {
 	getConfig(): AtelierConfig;
 	getHeight(): number;
 	isResizing?(): boolean;
+	canRenderImages?(): boolean;
+	isScrollable?: boolean;
 	theme: ThemeLike;
 	colorEnabled?: boolean;
-	/** 全屏分栏（外层是 ScrollView）时不禁内容高度，让面板完整渲染并靠滚动查看。 */
-	isScrollable?: boolean;
 }
 
-/** 可滚动侧栏的组装预算：足够容纳所有已启用面板，由 ScrollView 负责剪裁。 */
-const SCROLL_COMPOSE_HEIGHT = 400;
-
-function renderSidebarError(error: unknown, width: number, height: number, resizing = false): string[] {
+function renderSidebarError(error: unknown, width: number, height: number, resizing: boolean): string[] {
 	let detail = "Unknown error";
 	try {
-		detail = sanitize(error instanceof Error ? error.message : String(error)) || detail;
+		detail = sanitizeInline(errorMessage(error)) || detail;
 	} catch {
 		// Keep the fallback render path safe even for unusual thrown values.
 	}
-	return renderDock(
-		["Sidebar unavailable", detail],
-		width,
-		height,
-		{
-			paint: (_role, text) => text,
-		},
-		resizing,
-	);
+	const safeWidth = Math.max(0, Math.trunc(width));
+	const safeHeight = Math.max(0, Math.trunc(height));
+	if (safeWidth <= 0 || safeHeight <= 0) return [];
+	const plain: AtelierPalette = {
+		colorEnabled: false,
+		tinted: false,
+		paint: (_role, text) => text,
+		paintTint: (_role, text) => text,
+	};
+	return renderDock(["Sidebar unavailable", detail], safeWidth, safeHeight, plain, resizing);
 }
 
 export function createSidebarComponent(options: SidebarComponentOptions): Component {
+	const imageOwner = {};
 	return {
 		render(width) {
 			const height = options.getHeight();
-			const composeHeight = options.isScrollable ? Math.max(height, SCROLL_COMPOSE_HEIGHT) : height;
+			const composeHeight = options.isScrollable ? Math.max(height, 400) : height;
 			let resizing = false;
 			try {
 				resizing = options.isResizing?.() ?? false;
-				return renderSidebarLines(
-					options.getSnapshot(),
-					options.getConfig(),
-					options.theme,
-					width,
-					composeHeight,
-					options.colorEnabled ?? true,
-					Date.now(),
+				return renderSidebarLines(options.getSnapshot(), options.getConfig(), options.theme, width, composeHeight, {
+					dockHeight: height,
+					colorEnabled: options.colorEnabled ?? true,
 					resizing,
-					height,
-				);
+					chartGraphics: {
+						imageOwner: options.canRenderImages ? imageOwner : undefined,
+						suspendPlot: options.canRenderImages?.() === false,
+					},
+				});
 			} catch (error) {
 				return renderSidebarError(error, width, height, resizing);
 			}
@@ -1142,12 +964,13 @@ export function createSidebarComponent(options: SidebarComponentOptions): Compon
 
 export interface SidebarController {
 	show(): void;
+	setMode(mode: SidebarMode): void;
+	getStatus(): SidebarStatus;
 	hide(): void;
 	toggle(): void;
 	isVisible(): boolean;
 	beginResize(): boolean;
 	isResizing(): boolean;
-	getWidth(): number;
 	requestRender(): void;
 	dispose(): void;
 }
@@ -1158,80 +981,47 @@ export interface SidebarControllerOptions {
 	getConfig(): AtelierConfig;
 	colorEnabled?: boolean;
 	shouldAnimate?(): boolean;
-	animationIntervalMs?: number;
+	onToggleToolNames?(): void;
 	onWarning?(message: string): void;
 	onError?(error: unknown): void;
-	/** 点 TOOLS 的 `n / m active ▸` 行时调用（上游 /ui sidebar tools 的同一动作）。 */
-	onToggleToolNames?(): void;
 }
 
-interface RetirableSidebarBinding {
+/** Reads live data until detached, then serves the last plain copy to a stale overlay. */
+function createRetirableSidebarBinding(options: SidebarControllerOptions): {
 	getSnapshot(): SidebarSnapshot;
 	getConfig(): AtelierConfig;
-	isResizing(): boolean;
-	setResizing(reader: () => boolean): void;
 	detach(): void;
-}
-
-function createDetachedSidebarSnapshot(cwd: string): SidebarSnapshot {
-	return buildSidebarSnapshot({
-		state: {
-			activity: "ready",
-			dirty: false,
-			workspacePulse: { status: "unavailable" },
-			metrics: aggregateMetrics([], { subscription: false, autoCompact: null }),
-			extensionStatuses: [],
-		},
-		cwd,
+} {
+	let readSnapshot: (() => SidebarSnapshot) | undefined = options.getSnapshot;
+	let readConfig: (() => AtelierConfig) | undefined = options.getConfig;
+	let snapshot = buildSidebarSnapshot({
+		state: createInertAtelierState(null),
+		cwd: options.ctx.cwd,
 		branchEntryCount: 0,
 		activeToolCount: 0,
 		availableToolCount: 0,
-		activeToolNames: [],
-		extensionStatuses: [],
-		todos: [],
-		sidebarPanels: [],
 	});
-}
-
-function cloneSidebarSnapshot(snapshot: SidebarSnapshot): SidebarSnapshot {
-	return structuredClone(snapshot);
-}
-
-function cloneSidebarConfig(config: AtelierConfig): AtelierConfig {
-	return structuredClone(config);
-}
-
-function createRetirableSidebarBinding(options: SidebarControllerOptions): RetirableSidebarBinding {
-	let readSnapshot: (() => SidebarSnapshot) | undefined = options.getSnapshot;
-	let readConfig: (() => AtelierConfig) | undefined = options.getConfig;
-	let readResizing: (() => boolean) | undefined;
-	let snapshot = createDetachedSidebarSnapshot(typeof options.ctx.cwd === "string" ? options.ctx.cwd : "");
-	let config = cloneSidebarConfig(DEFAULT_CONFIG);
+	let config = structuredClone(DEFAULT_CONFIG);
 	return {
 		getSnapshot: () => (readSnapshot ? readSnapshot() : snapshot),
 		getConfig: () => (readConfig ? readConfig() : config),
-		isResizing: () => readResizing?.() ?? false,
-		setResizing: (reader) => {
-			if (readSnapshot) readResizing = reader;
-		},
 		detach: () => {
 			if (readSnapshot) {
 				try {
-					snapshot = cloneSidebarSnapshot(readSnapshot());
+					snapshot = structuredClone(readSnapshot());
 				} catch {
 					// The inert snapshot is already detached from the retired runtime.
 				}
 			}
 			if (readConfig) {
 				try {
-					config = cloneSidebarConfig(readConfig());
+					config = structuredClone(readConfig());
 				} catch {
 					// Keep the last plain configuration snapshot.
 				}
 			}
 			readSnapshot = undefined;
 			readConfig = undefined;
-			readResizing = undefined;
 		},
 	};
 }
@@ -1242,11 +1032,10 @@ export function createSidebarController(options: SidebarControllerOptions): Side
 	let disposed = false;
 	let generation = 0;
 	let closeOverlay: (() => void) | undefined;
+	let restoreStoppedCursor: (() => void) | undefined;
 	let requestOverlayRender: (() => void) | undefined;
-	let splitRequestRender: (() => void) | undefined;
 	let overlayHandle: OverlayHandle | undefined;
 	let animationTimer: ReturnType<typeof setInterval> | undefined;
-	const animationIntervalMs = Math.max(1, Math.trunc(options.animationIntervalMs ?? 1_000));
 
 	const reportError = (error: unknown) => {
 		try {
@@ -1266,17 +1055,15 @@ export function createSidebarController(options: SidebarControllerOptions): Side
 		}
 	};
 
-	const split: SplitPaneController = createSplitPaneController({
+	const split = createSplitPaneController({
 		subscribeInput: (handler) => options.ctx.ui.onTerminalInput(handler),
+		onVisibilityChange: () => syncAnimation(),
 		onResizeChange: () => {
 			safely(() => requestOverlayRender?.());
-			safely(() => splitRequestRender?.());
 		},
 		...(options.onWarning ? { onWarning: options.onWarning } : {}),
 		...(options.onError ? { onError: options.onError } : {}),
 	});
-
-	binding.setResizing(split.isResizing);
 
 	const stopAnimation = () => {
 		if (!animationTimer) return;
@@ -1285,22 +1072,35 @@ export function createSidebarController(options: SidebarControllerOptions): Side
 	};
 
 	const syncAnimation = () => {
-		if (!enabled || options.shouldAnimate?.() !== true || !requestOverlayRender) {
+		if (
+			!enabled ||
+			split.getStatus().presentation !== "shown" ||
+			!options.shouldAnimate?.() ||
+			!requestOverlayRender
+		) {
 			stopAnimation();
 			return;
 		}
 		if (animationTimer) return;
 		animationTimer = setInterval(() => {
 			safely(() => requestOverlayRender?.());
-		}, animationIntervalMs);
-		animationTimer.unref?.();
+		}, SIDEBAR_ANIMATION_INTERVAL_MS);
+		animationTimer.unref();
 	};
 
 	const clearOverlayCallbacks = () => {
 		closeOverlay = undefined;
+		restoreStoppedCursor = undefined;
 		requestOverlayRender = undefined;
-		splitRequestRender = undefined;
 		overlayHandle = undefined;
+	};
+
+	/** Abandon a show attempt that failed or was superseded. */
+	const abandonShow = () => {
+		enabled = false;
+		stopAnimation();
+		clearOverlayCallbacks();
+		safely(split.hide);
 	};
 
 	const hide = () => {
@@ -1311,10 +1111,12 @@ export function createSidebarController(options: SidebarControllerOptions): Side
 		safely(split.cancelResize);
 		const close = closeOverlay;
 		const handle = overlayHandle;
+		const restoreCursor = restoreStoppedCursor;
 		clearOverlayCallbacks();
 		if (close) safely(close);
 		else if (handle) safely(() => handle.hide());
 		safely(split.hide);
+		if (restoreCursor) safely(restoreCursor);
 	};
 
 	const show = () => {
@@ -1327,10 +1129,7 @@ export function createSidebarController(options: SidebarControllerOptions): Side
 		enabled = true;
 		const currentGeneration = ++generation;
 		if (!safely(split.show)) {
-			enabled = false;
-			stopAnimation();
-			clearOverlayCallbacks();
-			safely(split.hide);
+			abandonShow();
 			return;
 		}
 		try {
@@ -1343,41 +1142,34 @@ export function createSidebarController(options: SidebarControllerOptions): Side
 						done(undefined);
 					};
 					if (!safely(() => split.attach(tui))) {
-						enabled = false;
 						generation += 1;
-						stopAnimation();
-						clearOverlayCallbacks();
-						safely(split.hide);
+						abandonShow();
 						safely(close);
+					} else if (!enabled || generation !== currentGeneration) {
+						close();
 					} else {
-						splitRequestRender = () => tui.requestRender();
-						if (enabled && generation === currentGeneration) {
-							closeOverlay = close;
-							requestOverlayRender = () => tui.requestRender();
-							syncAnimation();
-						} else {
-							close();
-						}
+						closeOverlay = close;
+						restoreStoppedCursor = () => {
+							// Pi can close overlays after stop() restored the terminal (#72).
+							// The internal flag is optional; never change the cursor of a live TUI.
+							if ((tui as { stopped?: boolean }).stopped) tui.terminal.showCursor();
+						};
+						requestOverlayRender = () => tui.requestRender();
+						syncAnimation();
 					}
-					return withCollapsiblePanels(
-						createSidebarComponent({
-							getSnapshot: binding.getSnapshot,
-							getConfig: binding.getConfig,
-							getHeight: () => tui.terminal.rows,
-							isResizing: binding.isResizing,
-							// 全屏分栏时外层是 ScrollView：内容可高于面板，靠滚动查看。
-							isScrollable: tui.mode === "fullscreen",
-							// SAFETY: the Pi-supplied Theme implements the fg/bg/bold subset used here.
-							theme: theme as unknown as ThemeLike,
-							...(options.colorEnabled === undefined ? {} : { colorEnabled: options.colorEnabled }),
-					}),
-					{
+					return withCollapsiblePanels(createSidebarComponent({
+						getSnapshot: binding.getSnapshot,
+						getConfig: binding.getConfig,
+						getHeight: () => tui.terminal.rows,
+						isResizing: split.isResizing,
+						isScrollable: tui.mode === "fullscreen",
+						canRenderImages: () => !hasCapturingOverlay(tui),
+						theme,
+						...(options.colorEnabled === undefined ? {} : { colorEnabled: options.colorEnabled }),
+					}), {
 						onToggleToolNames: options.onToggleToolNames,
-						// SAFETY: the Pi-supplied Theme implements getBgAnsi; ThemeLike 接口未声明，可选链兜底缺失。
-						getHoverBgOpen: () =>
-							(theme as unknown as { getBgAnsi?: (color: string) => string }).getBgAnsi?.("selectedBg"),
-					},
-				);
+						getHoverBgOpen: () => theme.getBgAnsi("selectedBg"),
+					});
 				},
 				{
 					overlay: true,
@@ -1397,39 +1189,34 @@ export function createSidebarController(options: SidebarControllerOptions): Side
 					reportError(error);
 				})
 				.finally(() => {
-					if (generation !== currentGeneration) return;
-					enabled = false;
-					stopAnimation();
-					clearOverlayCallbacks();
-					safely(split.hide);
+					if (generation === currentGeneration) abandonShow();
 				});
 		} catch (error) {
-			if (generation === currentGeneration) {
-				enabled = false;
-				stopAnimation();
-				clearOverlayCallbacks();
-				safely(split.hide);
-			}
+			if (generation === currentGeneration) abandonShow();
 			reportError(error);
 		}
 	};
 
 	return {
-		show,
+		show: () => show(),
 		hide,
+		setMode(mode) {
+			safely(() => split.setMode(mode));
+			syncAnimation();
+		},
+		getStatus: split.getStatus,
 		toggle() {
 			if (enabled) hide();
 			else show();
 		},
 		isVisible() {
-			return enabled;
+			return enabled && split.getStatus().presentation === "shown";
 		},
 		beginResize: split.beginResize,
 		isResizing: split.isResizing,
-		getWidth: split.getSidebarWidth,
 		requestRender() {
-			safely(() => requestOverlayRender?.());
-			safely(split.requestRender);
+			// Still refresh the overlay if adapter reconciliation fails.
+			if (!safely(split.requestRender)) safely(() => requestOverlayRender?.());
 			syncAnimation();
 		},
 		dispose() {

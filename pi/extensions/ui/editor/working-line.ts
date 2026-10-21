@@ -1,25 +1,25 @@
 import { stripVTControlCharacters } from "node:util";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { workingLineColor } from "./component-colors";
+import { workingLineColor } from "./component-colors.ts";
 import type {
 	ColorSpec,
 	PolishedTuiColors,
 	WorkingLineComponentConfig,
 	WorkingLineTextAnimation,
 	ZentuiConfig,
-} from "./config";
-import { formatCount } from "./format";
+} from "./config.ts";
+import { formatCount } from "./format.ts";
 import {
 	isSafeSgrStylePrefix,
 	isSupportedColorSpec,
 	renderStyleForSourceOrFallback,
 	type SourceStyleFallback,
 	type ThemeLike,
-} from "./style";
-import { PI_WORKING_LINE_MESSAGES } from "./working-line-messages";
-import { WORKING_LINE_SPINNERS } from "./working-line-spinners";
+} from "./style.ts";
+import { PI_WORKING_LINE_MESSAGES } from "./working-line-messages.ts";
+import { WORKING_LINE_SPINNERS } from "./working-line-spinners.ts";
 
-export { WORKING_LINE_SPINNERS } from "./working-line-spinners";
+export { WORKING_LINE_SPINNERS } from "./working-line-spinners.ts";
 
 export const BUILT_IN_WORKING_LINE_MESSAGES = PI_WORKING_LINE_MESSAGES;
 export const WORKING_LINE_FALLBACK_MESSAGE = "Working…";
@@ -40,6 +40,8 @@ export const MAX_WORKING_LINE_NORMALIZED_CODE_UNITS = 256;
 export const MAX_WORKING_LINE_STYLE_TOKENS = 4;
 export const MAX_WORKING_LINE_STYLE_CODE_UNITS = 48;
 export const MAX_WORKING_LINE_ENTRIES_EXAMINED = 256;
+/** Minimum interval between metric-only Loader replacements while an assistant streams. */
+export const WORKING_LINE_METRIC_UPDATE_INTERVAL_MS = 50;
 
 const WORKING_LINE_FALLBACKS: Record<"low" | "mid" | "high", SourceStyleFallback> = {
 	low: { theme: "dim", terminal: "bright-black" },
@@ -57,6 +59,7 @@ type GraphemeCell = { text: string; start: number; width: number };
 type WorkingLineUi = {
 	setWorkingMessage(message?: string): void;
 	setWorkingIndicator(options?: { frames?: string[]; intervalMs?: number }): void;
+	setWorkingVisible?(visible: boolean): void;
 };
 
 type WorkingLineContext = {
@@ -66,6 +69,16 @@ type WorkingLineContext = {
 };
 
 type AgentDurationListener = (durationMs: number) => void;
+
+export type WorkingLineMetricScheduler = {
+	setTimeout(callback: () => void, delayMs: number): unknown;
+	clearTimeout(handle: unknown): void;
+};
+
+const defaultMetricScheduler: WorkingLineMetricScheduler = {
+	setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+	clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
 
 /** One agent-duration clock shared by minimalist Editor and Working-line consumers. */
 export class AgentDurationClock {
@@ -137,20 +150,35 @@ export class AgentDurationClock {
 	}
 }
 
-function segmentGraphemes(value: string): Iterable<string> {
+// Creating an `Intl.Segmenter` per call is very expensive (ICU init), so reuse one instance.
+let sharedGraphemeSegmenter: Intl.Segmenter | undefined;
+let sharedGraphemeSegmenterResolved = false;
+
+function getSharedGraphemeSegmenter(): Intl.Segmenter | undefined {
+	if (sharedGraphemeSegmenterResolved) return sharedGraphemeSegmenter;
+	sharedGraphemeSegmenterResolved = true;
 	try {
 		const Segmenter = Intl.Segmenter;
 		if (typeof Segmenter === "function") {
-			const segments = new Segmenter(undefined, { granularity: "grapheme" }).segment(value);
-			return {
-				*[Symbol.iterator]() {
-					for (const part of segments) yield part.segment;
-				},
-			};
+			sharedGraphemeSegmenter = new Segmenter(undefined, { granularity: "grapheme" });
 		}
 	} catch {
-		// Without Intl.Segmenter, treat the complete value as one conservative grapheme.
+		sharedGraphemeSegmenter = undefined;
 	}
+	return sharedGraphemeSegmenter;
+}
+
+function segmentGraphemes(value: string): Iterable<string> {
+	const segmenter = getSharedGraphemeSegmenter();
+	if (segmenter !== undefined) {
+		const segments = segmenter.segment(value);
+		return {
+			*[Symbol.iterator]() {
+				for (const part of segments) yield part.segment;
+			},
+		};
+	}
+	// Without Intl.Segmenter, treat the complete value as one conservative grapheme.
 	return [value];
 }
 
@@ -406,20 +434,26 @@ export function normalizeWorkingLineStyleSpec(value: ColorSpec | undefined): Col
 	return tokens.join(" ");
 }
 
-function renderTier(
+function workingLineTierRenderer(
 	theme: ThemeLike,
 	config: WorkingLineComponentConfig,
 	colors: PolishedTuiColors,
-	tier: Tier,
-	text: string,
-): string {
-	return renderStyleForSourceOrFallback(
-		theme,
-		config.colorSource,
-		normalizeWorkingLineStyleSpec(workingLineColor(config, colors, tier)),
-		WORKING_LINE_FALLBACKS[tier],
-		text,
-	);
+): (tier: Tier, text: string) => string {
+	// Palette validation is invariant within this build, but must not survive a
+	// metric/config/theme rebuild. Resolve lazily so unused tiers remain untouched.
+	const tierStyles = new Map<Tier, ColorSpec | undefined>();
+	return (tier, text) => {
+		if (!tierStyles.has(tier)) {
+			tierStyles.set(tier, normalizeWorkingLineStyleSpec(workingLineColor(config, colors, tier)));
+		}
+		return renderStyleForSourceOrFallback(
+			theme,
+			config.colorSource,
+			tierStyles.get(tier),
+			WORKING_LINE_FALLBACKS[tier],
+			text,
+		);
+	};
 }
 
 /** Resolve the fixed, nonanimated high-tier style used by persisted Turn summaries. */
@@ -456,9 +490,7 @@ export function snapshotWorkingLineHighStyle(
 }
 
 function renderAnimatedText(
-	theme: ThemeLike,
-	config: WorkingLineComponentConfig,
-	colors: PolishedTuiColors,
+	render: (tier: Tier, text: string) => string,
 	cells: GraphemeCell[],
 	width: number,
 	tick: number,
@@ -476,7 +508,7 @@ function renderAnimatedText(
 		if (previous?.tier === tier) previous.text += cell.text;
 		else runs.push({ tier, text: cell.text });
 	}
-	return runs.map((run) => renderTier(theme, config, colors, run.tier, run.text)).join("");
+	return runs.map((run) => render(run.tier, run.text)).join("");
 }
 
 export type WorkingLineRuntimeSegments = {
@@ -485,6 +517,7 @@ export type WorkingLineRuntimeSegments = {
 	thought?: { durationMs: number; active: boolean };
 	tokens?: { input: number; output: number; outputApproximate?: boolean };
 	extensions?: readonly string[];
+	tokenRate?: string;
 };
 
 export type WorkingLineFrameState = {
@@ -586,6 +619,12 @@ function fitWorkingLineExtensionSegments(
 
 export type ComposedWorkingLine = { message: string; row: string };
 
+type PreparedWorkingLine = ComposedWorkingLine & {
+	spinnerWidth: number;
+	rowWidth: number;
+	rate?: { text: string; codeStart: number };
+};
+
 /** Validate and measure the fixed visible width shared by every frame in a preset. */
 export function workingLineSpinnerWidth(spinnerId: WorkingLineComponentConfig["spinner"]): number {
 	const frames: readonly string[] = WORKING_LINE_SPINNERS[spinnerId].frames;
@@ -602,12 +641,27 @@ export function composeWorkingLineRow(
 	message: string,
 	runtime: WorkingLineRuntimeSegments = {},
 ): ComposedWorkingLine {
+	const composed = prepareWorkingLineRow(config, message, runtime);
+	return { message: composed.message, row: composed.row };
+}
+
+function prepareWorkingLineRow(
+	config: WorkingLineComponentConfig,
+	message: string,
+	runtime: WorkingLineRuntimeSegments,
+): PreparedWorkingLine {
 	const normalized = normalizeWorkingLineMessage(message) || WORKING_LINE_FALLBACK_MESSAGE;
-	const maximumRowCells =
-		MAX_WORKING_LINE_FRAME_CELLS - workingLineSpinnerWidth(config.spinner) - visibleWidth(" ");
+	const spinnerWidth = workingLineSpinnerWidth(config.spinner);
+	const maximumRowCells = MAX_WORKING_LINE_FRAME_CELLS - spinnerWidth - 1;
 	const delimiter = " · ";
 	const tokens = config.segments.tokens ? formatWorkingLineTokens(runtime.tokens) : undefined;
-	const tokenWidth = tokens ? visibleWidth(delimiter) + visibleWidth(tokens) : 0;
+	const tokenRate =
+		config.segments.tokenRate && /^(?:(?:~)?[1-9]\d*|—) tok\/s$/.test(runtime.tokenRate ?? "")
+			? runtime.tokenRate
+			: undefined;
+	const tokenWidth =
+		(tokens ? visibleWidth(delimiter) + visibleWidth(tokens) : 0) +
+		(tokenRate ? visibleWidth(delimiter) + visibleWidth(tokenRate) : 0);
 	const extensions = fitWorkingLineExtensionSegments(
 		runtime.extensions ?? [],
 		Math.max(0, maximumRowCells - tokenWidth - 1),
@@ -651,8 +705,22 @@ export function composeWorkingLineRow(
 	if (accepted.has("elapsed") && elapsed) segments.push(elapsed);
 	if (accepted.has("thought") && thought) segments.push(thought);
 	if (tokens) segments.push(tokens);
+	const beforeRate = segments.filter(Boolean).join(delimiter);
+	if (tokenRate) segments.push(tokenRate);
 	segments.push(...extensions);
-	return { message: normalized, row: segments.filter(Boolean).join(delimiter) };
+	const row = segments.filter(Boolean).join(delimiter);
+	return {
+		message: normalized,
+		row,
+		spinnerWidth,
+		rowWidth: visibleWidth(row),
+		rate: tokenRate
+			? {
+					text: tokenRate,
+					codeStart: beforeRate.length + delimiter.length,
+				}
+			: undefined,
+	};
 }
 
 type ScheduleDefinition = {
@@ -746,12 +814,36 @@ function bestFallbackFrameCount(
 	return best;
 }
 
+function spinnerRowCells(
+	frames: readonly string[],
+	row: string,
+	spinnerWidth: number,
+): Map<string, GraphemeCell[]> {
+	const byGlyph = new Map<string, GraphemeCell[]>();
+	// Keep the separator attached to the row: a leading combining mark can join that space.
+	// Without Intl.Segmenter, preserve the conservative single-grapheme whole-frame fallback.
+	const suffix = getSharedGraphemeSegmenter()
+		? graphemeCells(` ${row}`).cells.map((cell) => ({
+				...cell,
+				start: cell.start + spinnerWidth,
+			}))
+		: undefined;
+	for (const glyph of frames) {
+		if (byGlyph.has(glyph)) continue;
+		byGlyph.set(
+			glyph,
+			suffix ? [...graphemeCells(glyph).cells, ...suffix] : graphemeCells(`${glyph} ${row}`).cells,
+		);
+	}
+	return byGlyph;
+}
+
 function renderWorkingLineSchedule(
 	definition: ScheduleDefinition,
 	config: WorkingLineComponentConfig,
-	colors: PolishedTuiColors,
-	theme: ThemeLike,
-	row: string,
+	render: (tier: Tier, text: string) => string,
+	rowCells: GraphemeCell[],
+	spinnerCells: Map<string, GraphemeCell[]> | undefined,
 	width: number,
 	textCycle: number,
 	spinnerStartTick: number,
@@ -763,6 +855,31 @@ function renderWorkingLineSchedule(
 	const frameStates: WorkingLineFrameState[] = [];
 	let codeUnits = 0;
 	const scheduleOrigin = definition.stateAt(scheduleStartFrame);
+	// Many frames of the schedule share the same textTick/spinnerTick. Render each
+	// distinct value once and reuse — this dominates on slow CPUs (e.g. a Pi).
+	const textRenderCache = new Map<number, string>();
+	const renderTextForTick = (tick: number): string => {
+		let cachedText = textRenderCache.get(tick);
+		if (cachedText === undefined) {
+			cachedText = renderAnimatedText(render, rowCells, width, tick, config.textAnimation);
+			textRenderCache.set(tick, cachedText);
+		}
+		return cachedText;
+	};
+	const spinnerRenderCache = new Map<number, string>();
+	const renderSpinnerForTick = (tick: number): string => {
+		// Key by the glyph index, not the raw tick: the glyph only repeats every
+		// `spinner.frames.length` ticks, so keying raw under-caches badly.
+		const frameCount = spinner.frames.length;
+		const index = ((tick % frameCount) + frameCount) % frameCount;
+		let cachedSpinner = spinnerRenderCache.get(index);
+		if (cachedSpinner === undefined) {
+			const glyph = spinner.frames[index] ?? spinner.frames[0];
+			cachedSpinner = render("high", glyph);
+			spinnerRenderCache.set(index, cachedSpinner);
+		}
+		return cachedSpinner;
+	};
 	for (let index = 0; index < definition.frameCount; index += 1) {
 		const scheduled = definition.stateAt(scheduleStartFrame + index);
 		const state = {
@@ -776,23 +893,13 @@ function renderWorkingLineSchedule(
 			spinner.frames[state.spinnerTick % spinner.frames.length] ?? spinner.frames[0];
 		const frame = config.animateSpinnerColor
 			? `${renderAnimatedText(
-					theme,
-					config,
-					colors,
-					graphemeCells(`${spinnerGlyph} ${row}`).cells,
+					render,
+					spinnerCells?.get(spinnerGlyph) ?? rowCells,
 					width,
 					state.textTick,
 					config.textAnimation,
 				)}${SGR_RESET}`
-			: `${renderTier(theme, config, colors, "high", spinnerGlyph)} ${renderAnimatedText(
-					theme,
-					config,
-					colors,
-					graphemeCells(row).cells,
-					width,
-					state.textTick,
-					config.textAnimation,
-				)}${SGR_RESET}`;
+			: `${renderSpinnerForTick(state.spinnerTick)} ${renderTextForTick(state.textTick)}${SGR_RESET}`;
 		codeUnits += frame.length;
 		if (codeUnits > MAX_WORKING_LINE_FRAME_CODE_UNITS) return undefined;
 		frames.push(frame);
@@ -811,11 +918,29 @@ export function buildWorkingLineFrames(
 	textStartTick = spinnerStartTick,
 	scheduleStartFrame = 0,
 ): WorkingLineFrames {
-	const composed = composeWorkingLineRow(config, message, runtime);
+	return buildPreparedWorkingLineFrames(
+		config,
+		colors,
+		theme,
+		prepareWorkingLineRow(config, message, runtime),
+		spinnerStartTick,
+		textStartTick,
+		scheduleStartFrame,
+	);
+}
+
+function buildPreparedWorkingLineFrames(
+	config: WorkingLineComponentConfig,
+	colors: PolishedTuiColors,
+	theme: ThemeLike,
+	composed: PreparedWorkingLine,
+	spinnerStartTick: number,
+	textStartTick: number,
+	scheduleStartFrame: number,
+): WorkingLineFrames {
 	const spinner = WORKING_LINE_SPINNERS[config.spinner];
-	const spinnerWidth = workingLineSpinnerWidth(config.spinner);
-	const { width: rowWidth } = graphemeCells(composed.row);
-	const frameWidth = spinnerWidth + visibleWidth(" ") + rowWidth;
+	const { spinnerWidth, rowWidth } = composed;
+	const frameWidth = spinnerWidth + 1 + rowWidth;
 	if (frameWidth > MAX_WORKING_LINE_FRAME_CELLS) {
 		throw new Error("Working-line row exceeds its visible-width cap");
 	}
@@ -823,11 +948,23 @@ export function buildWorkingLineFrames(
 		? Math.max(0, Math.floor(spinnerStartTick))
 		: 0;
 	const animatedTextWidth = config.animateSpinnerColor ? frameWidth : rowWidth;
-	const textOrigin = config.animateSpinnerColor ? 0 : spinnerWidth + visibleWidth(" ");
+	const textOrigin = config.animateSpinnerColor ? 0 : spinnerWidth + 1;
 	const textCycle = textPeriod(config.textAnimation, animatedTextWidth);
 	const textPhase = normalizedPhaseTick(textStartTick, textCycle);
+	const render = workingLineTierRenderer(theme, config, colors);
 
 	if (config.textAnimation === "disabled") {
+		const rateStyle = normalizeWorkingLineStyleSpec(workingLineColor(config, colors, "tokenRate"));
+		const renderRate = (text: string) =>
+			rateStyle === undefined
+				? render("mid", text)
+				: renderStyleForSourceOrFallback(
+						theme,
+						config.colorSource,
+						rateStyle,
+						WORKING_LINE_FALLBACKS.mid,
+						text,
+					);
 		const frameStates = Array.from({ length: spinner.frames.length }, (_, index) => ({
 			spinnerTick: spinnerPhase + index,
 			textTick: 0,
@@ -835,15 +972,17 @@ export function buildWorkingLineFrames(
 		let codeUnits = 0;
 		const frames = frameStates.map((state) => {
 			const glyph = spinner.frames[state.spinnerTick % spinner.frames.length] ?? spinner.frames[0];
-			const frame = `${renderAnimatedText(
-				theme,
-				config,
-				colors,
-				graphemeCells(`${glyph} ${composed.row}`).cells,
-				frameWidth,
-				0,
-				"disabled",
-			)}${SGR_RESET}`;
+			const row = composed.rate
+				? (() => {
+						const start = composed.rate.codeStart;
+						return (
+							render("mid", `${glyph} ${composed.row.slice(0, start)}`) +
+							renderRate(composed.rate.text) +
+							render("mid", composed.row.slice(start + composed.rate.text.length))
+						);
+					})()
+				: render("mid", `${glyph} ${composed.row}`);
+			const frame = `${row}${SGR_RESET}`;
 			codeUnits += frame.length;
 			if (codeUnits > MAX_WORKING_LINE_FRAME_CODE_UNITS)
 				throw new Error("Working-line animation exceeds its memory cap");
@@ -870,6 +1009,11 @@ export function buildWorkingLineFrames(
 		};
 	}
 
+	// These cells are invariant even if the memory cap requires retrying a shorter schedule.
+	const rowCells = config.animateSpinnerColor ? [] : graphemeCells(composed.row).cells;
+	const spinnerCells = config.animateSpinnerColor
+		? spinnerRowCells(spinner.frames, composed.row, spinnerWidth)
+		: undefined;
 	const exact = exactSchedule(
 		config.spinnerIntervalMs,
 		config.textIntervalMs,
@@ -880,9 +1024,9 @@ export function buildWorkingLineFrames(
 		const rendered = renderWorkingLineSchedule(
 			exact,
 			config,
-			colors,
-			theme,
-			composed.row,
+			render,
+			rowCells,
+			spinnerCells,
 			animatedTextWidth,
 			textCycle,
 			spinnerPhase,
@@ -923,9 +1067,9 @@ export function buildWorkingLineFrames(
 		const rendered = renderWorkingLineSchedule(
 			fallback,
 			config,
-			colors,
-			theme,
-			composed.row,
+			render,
+			rowCells,
+			spinnerCells,
 			animatedTextWidth,
 			textCycle,
 			spinnerPhase,
@@ -957,6 +1101,7 @@ export function buildWorkingLineSpinnerFrames(
 ): { frames: string[]; frameStates: WorkingLineFrameState[]; intervalMs: number } {
 	const spinner = WORKING_LINE_SPINNERS[config.spinner];
 	workingLineSpinnerWidth(config.spinner);
+	const render = workingLineTierRenderer(theme, config, colors);
 	const phase = Number.isFinite(startTick) ? Math.max(0, Math.floor(startTick)) : 0;
 	const frameStates = Array.from({ length: spinner.frames.length }, (_, index) => ({
 		spinnerTick: phase + index,
@@ -964,7 +1109,7 @@ export function buildWorkingLineSpinnerFrames(
 	}));
 	const frames = frameStates.map((state) => {
 		const glyph = spinner.frames[state.spinnerTick % spinner.frames.length] ?? spinner.frames[0];
-		return `${renderTier(theme, config, colors, "high", glyph)}${SGR_RESET}`;
+		return `${render("high", glyph)}${SGR_RESET}`;
 	});
 	return { frames, frameStates, intervalMs: config.spinnerIntervalMs };
 }
@@ -987,6 +1132,7 @@ export function buildWorkingLinePreviewFrames(
 			elapsedMs: 62_000,
 			thought: { durationMs: 10_000, active: true },
 			tokens: { input: 1234, output: 56 },
+			tokenRate: "~48 tok/s",
 		},
 		spinnerStartTick,
 		textStartTick,
@@ -1039,11 +1185,19 @@ export class WorkingLineController {
 	private ownsIndicator = false;
 	private ownsMessage = false;
 	private agentActive = false;
+	private animationTimer?: ReturnType<typeof setInterval>;
+	private animationIntervalMs: number | undefined;
+	private hiddenWorkingVisible = false;
+	private restoreWorkingVisible: (() => void) | undefined;
+	private installedUi: WorkingLineUi | undefined;
+	private placementContext: WorkingLineContext | undefined;
+	private requestRender: () => void = () => {};
 	private selectedMessage: string | undefined;
 	private frameKey: string | undefined;
 	private installedPhase: InstalledAnimationPhase | undefined;
 	private installedIndicatorOptions: WorkingIndicatorOptions | undefined;
 	private tokens: WorkingLineRuntimeSegments["tokens"];
+	private tokenRate = "";
 	private thought: WorkingLineRuntimeSegments["thought"];
 	private extensionSegments: readonly string[] = [];
 	private extensionSegmentsDirty = false;
@@ -1052,6 +1206,11 @@ export class WorkingLineController {
 	private elapsedUpdatesContext: WorkingLineContext | undefined;
 	private elapsedUpdatesGeneration = 0;
 	private stopElapsedUpdates: (() => void) | undefined;
+	private lastMetricWriteAt: number | undefined;
+	private metricUpdateScheduled = false;
+	private metricUpdateHandle: unknown;
+	private metricUpdateContext: WorkingLineContext | undefined;
+	private metricUpdateGeneration = 0;
 
 	constructor(
 		private readonly getConfig: () => ZentuiConfig,
@@ -1061,9 +1220,12 @@ export class WorkingLineController {
 		private readonly now: () => number = Date.now,
 		private readonly getThought: () => WorkingLineRuntimeSegments["thought"] = () => this.thought,
 		private readonly onUnavailable: () => void = () => {},
+		private readonly metricScheduler: WorkingLineMetricScheduler = defaultMetricScheduler,
+		private readonly canEmbedBorder: (ctx: WorkingLineContext) => boolean = () => false,
 	) {}
 
 	startSession(ctx: WorkingLineContext): WorkingLineReconcileResult {
+		this.reset(ctx);
 		this.clearRuntime();
 		this.selectedMessage = undefined;
 		this.installedPhase = undefined;
@@ -1079,10 +1241,12 @@ export class WorkingLineController {
 			// stored indicator so the subsequently constructed Loader begins at intended frame zero.
 			this.install(ctx, true, true);
 		}
+		this.reconcilePlacement(ctx);
 		this.reconcileElapsedUpdates(ctx);
 	}
 
 	startTurn(ctx: WorkingLineContext): WorkingLineReconcileResult {
+		this.lastMetricWriteAt = undefined;
 		const config = this.getConfig().components.workingLine;
 		this.activeTools.clear();
 		const selectedMessage = selectWorkingLineMessage(config, this.random);
@@ -1100,12 +1264,21 @@ export class WorkingLineController {
 	): void {
 		this.tokens = tokens;
 		this.thought = thought;
-		this.updateIndicator(ctx);
+		this.scheduleMetricIndicator(ctx);
 		this.reconcileElapsedUpdates(ctx);
 	}
 
+	updateTokenRate(text: string, ctx: WorkingLineContext): void {
+		if (text === this.tokenRate) return;
+		this.tokenRate = text;
+		this.scheduleMetricIndicator(ctx);
+	}
+
 	updateTokens(tokens: WorkingLineRuntimeSegments["tokens"], ctx: WorkingLineContext): void {
-		this.updateMetrics(tokens, this.getThought(), ctx);
+		this.tokens = tokens;
+		this.thought = this.getThought();
+		this.updateIndicator(ctx);
+		this.reconcileElapsedUpdates(ctx);
 	}
 
 	updateExtensionSegments(segments: readonly string[], ctx: WorkingLineContext): boolean {
@@ -1139,12 +1312,15 @@ export class WorkingLineController {
 
 	finishAgent(ctx: WorkingLineContext): void {
 		this.agentActive = false;
+		this.stopAnimationTicks();
 		this.activeTools.clear();
 		this.deactivateElapsedUpdates();
 		this.updateIndicator(ctx);
+		this.releaseWorkingVisibility();
+		this.requestRender();
 	}
 
-	settle(
+	flushMetrics(
 		tokens: WorkingLineRuntimeSegments["tokens"],
 		thought: WorkingLineRuntimeSegments["thought"],
 		ctx: WorkingLineContext,
@@ -1153,6 +1329,14 @@ export class WorkingLineController {
 		this.thought = thought;
 		this.updateIndicator(ctx);
 		this.reconcileElapsedUpdates(ctx);
+	}
+
+	settle(
+		tokens: WorkingLineRuntimeSegments["tokens"],
+		thought: WorkingLineRuntimeSegments["thought"],
+		ctx: WorkingLineContext,
+	): void {
+		this.flushMetrics(tokens, thought, ctx);
 	}
 
 	reconcile(ctx: WorkingLineContext): WorkingLineReconcileResult {
@@ -1180,7 +1364,27 @@ export class WorkingLineController {
 		return this.selectedMessage;
 	}
 
-	/** Whether this controller currently claims both required public Working-row surfaces. */
+	setRequestRender(requestRender: () => void): void {
+		this.requestRender = requestRender;
+	}
+
+	/** Only the currently capable, owned border renderer may consume this frame. */
+	currentWorkingLineFrame(): string | undefined {
+		if (!this.placementContext || !this.reconcilePlacement(this.placementContext)) return undefined;
+		const frames = this.installedIndicatorOptions?.frames;
+		if (!frames || frames.length === 0) {
+			return this.selectedMessage;
+		}
+		if (!this.installedPhase || this.installedPhase.frameStates.length === 0) {
+			return frames[0];
+		}
+		const interval = this.installedPhase.intervalMs > 0 ? this.installedPhase.intervalMs : 100;
+		const elapsedMs = Math.max(0, this.now() - this.installedPhase.frameEpochMs);
+		const frameIndex = Math.max(0, Math.floor(elapsedMs / interval)) % frames.length;
+		return frames[frameIndex] ?? this.selectedMessage;
+	}
+
+	/** Whether this controller owns the host's available Working-row surfaces. */
 	isAvailable(): boolean {
 		return (
 			this.getConfig().components.workingLine.enabled &&
@@ -1196,25 +1400,25 @@ export class WorkingLineController {
 		rebasePhase = false,
 		selectedMessage?: string,
 	): WorkingLineReconcileResult {
+		this.cancelMetricIndicator();
 		const ui = workingLineUi(ctx);
+		if (this.installedUi && this.installedUi !== ui) this.reset(ctx);
 		if (!ui) {
-			this.installed = false;
-			this.deactivateElapsedUpdates();
+			this.reset(ctx);
 			this.invalidateUnavailableExtensionSegments();
 			return { applied: false, reason: "Working line requires a newer Pi TUI" };
 		}
+		this.installedUi = ui;
+		this.placementContext = ctx;
 		const rootConfig = this.getConfig();
 		const config = rootConfig.components.workingLine;
 		const nextMessage =
 			selectedMessage ?? this.selectedMessage ?? effectiveWorkingLineMessages(config)[0];
 		const snapshot = this.installationSnapshot();
 		try {
-			if (!this.ownsMessage) {
-				this.ownsMessage = true;
-				ui.setWorkingMessage("");
-			}
 			this.applyIndicator(ui, rootConfig, nextMessage, forceIndicator, rebasePhase);
 			this.selectedMessage = nextMessage;
+			this.reconcilePlacement(ctx, true);
 			this.reconcileElapsedUpdates(ctx);
 			return { applied: true };
 		} catch {
@@ -1223,13 +1427,8 @@ export class WorkingLineController {
 		}
 	}
 
-	private makeFrameKey(rootConfig: ZentuiConfig, selectedMessage: string | undefined): string {
+	private makeFrameKey(rootConfig: ZentuiConfig, row: string): string {
 		const config = rootConfig.components.workingLine;
-		const { row } = composeWorkingLineRow(
-			config,
-			selectedMessage ?? WORKING_LINE_FALLBACK_MESSAGE,
-			this.runtimeSegments(),
-		);
 		return JSON.stringify([
 			"owned",
 			config.spinner,
@@ -1248,6 +1447,7 @@ export class WorkingLineController {
 						workingLineColor(config, rootConfig.colors, "low"),
 						workingLineColor(config, rootConfig.colors, "mid"),
 						workingLineColor(config, rootConfig.colors, "high"),
+						workingLineColor(config, rootConfig.colors, "tokenRate"),
 					]),
 			row,
 		]);
@@ -1260,6 +1460,7 @@ export class WorkingLineController {
 			elapsedMs: this.agentActive ? this.durationClock.elapsedMs() : undefined,
 			thought,
 			tokens: this.tokens,
+			tokenRate: this.agentActive ? this.tokenRate : "",
 			extensions: this.extensionSegments,
 		};
 	}
@@ -1271,12 +1472,21 @@ export class WorkingLineController {
 		force = false,
 		rebase = false,
 	): void {
-		const key = this.makeFrameKey(rootConfig, selectedMessage);
+		// Pi stores message separately from indicator frames. Reassert even when the row
+		// is unchanged, without replacing cached frames or restarting Loader animation.
+		this.ownsMessage = true;
+		ui.setWorkingMessage("");
+		const config = rootConfig.components.workingLine;
+		const composed = prepareWorkingLineRow(
+			config,
+			selectedMessage ?? WORKING_LINE_FALLBACK_MESSAGE,
+			this.runtimeSegments(),
+		);
+		const key = this.makeFrameKey(rootConfig, composed.row);
 		if (!force && this.installed && this.frameKey === key) {
 			this.extensionSegmentsDirty = false;
 			return;
 		}
-		const config = rootConfig.components.workingLine;
 		const sampledAtMs = this.now();
 		let spinnerTick = 0;
 		let spatial: TextSpatialPhase | undefined;
@@ -1298,16 +1508,11 @@ export class WorkingLineController {
 				sampled?.textTick ?? 0,
 			);
 		}
-		const message = selectedMessage ?? WORKING_LINE_FALLBACK_MESSAGE;
-		const runtime = this.runtimeSegments();
-		const composed = composeWorkingLineRow(config, message, runtime);
-		const spinnerWidth = workingLineSpinnerWidth(config.spinner);
+		const { spinnerWidth, rowWidth } = composed;
 		const textWidth =
-			config.textAnimation !== "disabled" && config.animateSpinnerColor
-				? spinnerWidth + 1 + visibleWidth(composed.row)
-				: config.textAnimation === "disabled"
-					? spinnerWidth + 1 + visibleWidth(composed.row)
-					: visibleWidth(composed.row);
+			config.animateSpinnerColor || config.textAnimation === "disabled"
+				? spinnerWidth + 1 + rowWidth
+				: rowWidth;
 		const textOrigin =
 			config.textAnimation !== "disabled" && !config.animateSpinnerColor ? spinnerWidth + 1 : 0;
 		const relativeSpatial = spatial
@@ -1317,12 +1522,11 @@ export class WorkingLineController {
 				}
 			: undefined;
 		const textTick = textTickForSpatialPhase(config.textAnimation, textWidth, relativeSpatial);
-		const generated = buildWorkingLineFrames(
+		const generated = buildPreparedWorkingLineFrames(
 			config,
 			rootConfig.colors,
 			this.getTheme(),
-			message,
-			runtime,
+			composed,
 			spinnerTick,
 			textTick,
 			scheduleStartFrame,
@@ -1351,13 +1555,24 @@ export class WorkingLineController {
 	}
 
 	private updateIndicator(ctx: WorkingLineContext): boolean {
+		this.cancelMetricIndicator();
 		const rootConfig = this.getConfig();
-		if (!rootConfig.components.workingLine.enabled || !this.installed) return false;
+		if (!rootConfig.components.workingLine.enabled) {
+			this.reset(ctx);
+			return false;
+		}
 		const ui = workingLineUi(ctx);
-		if (!ui) return false;
+		if (!ui || this.installedUi !== ui) {
+			this.reset(ctx);
+			this.invalidateUnavailableExtensionSegments();
+			return false;
+		}
+		if (!this.installed) return false;
+		this.placementContext = ctx;
 		const snapshot = this.installationSnapshot();
 		try {
 			this.applyIndicator(ui, rootConfig);
+			this.reconcilePlacement(ctx, true);
 			return !this.extensionSegmentsDirty;
 		} catch {
 			// A transient last-writer/public-API failure must not break the agent turn.
@@ -1366,6 +1581,159 @@ export class WorkingLineController {
 		}
 	}
 
+	private scheduleMetricIndicator(ctx: WorkingLineContext): void {
+		const config = this.getConfig().components.workingLine;
+		if (!config.enabled || !this.installed) return;
+		this.metricUpdateContext = ctx;
+		const sampledAt = this.now();
+		const elapsed =
+			this.lastMetricWriteAt === undefined
+				? Number.POSITIVE_INFINITY
+				: Math.max(0, sampledAt - this.lastMetricWriteAt);
+		if (elapsed >= WORKING_LINE_METRIC_UPDATE_INTERVAL_MS) {
+			this.updateIndicator(ctx);
+			this.lastMetricWriteAt = sampledAt;
+			return;
+		}
+		if (this.metricUpdateScheduled) return;
+		this.metricUpdateScheduled = true;
+		const generation = ++this.metricUpdateGeneration;
+		this.metricUpdateHandle = this.metricScheduler.setTimeout(
+			() => {
+				if (!this.metricUpdateScheduled || generation !== this.metricUpdateGeneration) return;
+				this.metricUpdateScheduled = false;
+				this.metricUpdateHandle = undefined;
+				const latest = this.metricUpdateContext;
+				this.metricUpdateContext = undefined;
+				if (latest) {
+					this.updateIndicator(latest);
+					this.lastMetricWriteAt = this.now();
+				}
+			},
+			Math.max(0, WORKING_LINE_METRIC_UPDATE_INTERVAL_MS - elapsed),
+		);
+	}
+
+	private cancelMetricIndicator(): void {
+		this.metricUpdateContext = undefined;
+		this.metricUpdateGeneration++;
+		if (this.metricUpdateScheduled) {
+			this.metricScheduler.clearTimeout(this.metricUpdateHandle);
+		}
+		this.metricUpdateScheduled = false;
+		this.metricUpdateHandle = undefined;
+	}
+	/** Placement is independent of the cached row contents and never changes user choices. */
+	private reconcilePlacement(ctx: WorkingLineContext, messageRefreshed = false): boolean {
+		let canEmbed = false;
+		let ownsCurrentRow = false;
+		const ui = this.installedUi;
+		try {
+			ownsCurrentRow = this.isAvailable() && workingLineUi(ctx) === ui;
+			canEmbed = Boolean(
+				this.agentActive &&
+					ownsCurrentRow &&
+					this.getConfig().components.workingLine.placement === "border" &&
+					ui &&
+					typeof ui.setWorkingVisible === "function" &&
+					this.canEmbedBorder(ctx),
+			);
+		} catch {
+			// Capability probes, including predecessor editor getters, must fail open.
+		}
+		if (!canEmbed || !ui) {
+			if (this.agentActive && ownsCurrentRow && !this.ownsIndicator) this.startAnimationTicks();
+			else this.stopAnimationTicks();
+			// A render/capability change can reveal the native row without applyIndicator.
+			// Clear its separate message before Pi constructs the visible Loader.
+			if (!messageRefreshed && this.hiddenWorkingVisible && ownsCurrentRow && ui) {
+				const snapshot = this.installationSnapshot();
+				try {
+					ui.setWorkingMessage("");
+				} catch {
+					this.recoverOrReleaseAfterFailure(ui, snapshot);
+					return false;
+				}
+			}
+			this.releaseWorkingVisibility();
+			return false;
+		}
+		if (!this.hiddenWorkingVisible) {
+			// A failed restoration remains attached to its original UI, even after reset.
+			this.releaseWorkingVisibility();
+			if (this.restoreWorkingVisible) return false;
+			try {
+				const setVisible = ui.setWorkingVisible;
+				if (typeof setVisible !== "function") return false;
+				this.restoreWorkingVisible = () => setVisible.call(ui, true);
+				setVisible.call(ui, false);
+				this.hiddenWorkingVisible = true;
+			} catch {
+				// A throwing setter may already have hidden the row. Restore without claiming it.
+				this.stopAnimationTicks();
+				this.releaseWorkingVisibility();
+				return false;
+			}
+		}
+		this.startAnimationTicks();
+		return true;
+	}
+
+	private releaseWorkingVisibility(): void {
+		this.hiddenWorkingVisible = false;
+		if (!this.restoreWorkingVisible) return;
+		try {
+			this.restoreWorkingVisible();
+			this.restoreWorkingVisible = undefined;
+		} catch {
+			// Keep the original setter for a later cleanup attempt, even without row ownership.
+		}
+	}
+
+	private startAnimationTicks(): void {
+		const interval = this.installedPhase?.intervalMs;
+		if (
+			!interval ||
+			interval <= 0 ||
+			(!this.ownsIndicator && (this.installedIndicatorOptions?.frames?.length ?? 0) <= 1)
+		) {
+			this.stopAnimationTicks();
+			return;
+		}
+		if (this.animationTimer !== undefined && this.animationIntervalMs === interval) return;
+		this.stopAnimationTicks();
+		this.animationIntervalMs = interval;
+		this.animationTimer = setInterval(() => {
+			const ctx = this.placementContext;
+			if (ctx && this.agentActive && !this.ownsIndicator && this.isAvailable()) {
+				const phase = this.installedPhase;
+				const frames = this.installedIndicatorOptions?.frames;
+				if (phase && frames?.length) {
+					const index =
+						Math.floor(Math.max(0, this.now() - phase.frameEpochMs) / interval) % frames.length;
+					try {
+						this.installedUi?.setWorkingMessage(frames[index]);
+					} catch {
+						if (this.installedUi) this.releaseAfterFailure(this.installedUi);
+					}
+				}
+				return;
+			}
+			if (!ctx || !this.reconcilePlacement(ctx)) {
+				this.stopAnimationTicks();
+				return;
+			}
+			this.requestRender();
+		}, interval);
+	}
+
+	private stopAnimationTicks(): void {
+		if (this.animationTimer !== undefined) {
+			clearInterval(this.animationTimer);
+			this.animationTimer = undefined;
+		}
+		this.animationIntervalMs = undefined;
+	}
 	private reconcileElapsedUpdates(ctx: WorkingLineContext): void {
 		this.elapsedUpdatesContext = ctx;
 		const config = this.getConfig().components.workingLine;
@@ -1414,7 +1782,7 @@ export class WorkingLineController {
 	}
 
 	private recoverOrReleaseAfterFailure(ui: WorkingLineUi, snapshot: InstallationSnapshot): void {
-		if (!snapshot.installed || !snapshot.ownsIndicator || !snapshot.indicatorOptions) {
+		if (!snapshot.installed || !snapshot.ownsMessage || !snapshot.indicatorOptions) {
 			this.releaseAfterFailure(ui);
 			return;
 		}
@@ -1430,8 +1798,10 @@ export class WorkingLineController {
 		this.elapsedUpdatesGeneration = snapshot.elapsedUpdatesGeneration;
 		this.stopElapsedUpdates = snapshot.stopElapsedUpdates;
 		try {
-			ui.setWorkingIndicator(snapshot.indicatorOptions);
-			if (snapshot.ownsMessage) ui.setWorkingMessage("");
+			if (snapshot.ownsIndicator) ui.setWorkingIndicator?.(snapshot.indicatorOptions);
+			if (snapshot.ownsMessage)
+				ui.setWorkingMessage(snapshot.ownsIndicator ? "" : snapshot.indicatorOptions.frames?.[0]);
+			if (this.placementContext) this.reconcilePlacement(this.placementContext, true);
 		} catch {
 			// Recovery is deliberately direct rather than recursive. If either setter cannot
 			// restore the last successful public state, release both unkeyed surfaces.
@@ -1449,10 +1819,13 @@ export class WorkingLineController {
 	}
 
 	private releaseAfterFailure(ui: WorkingLineUi): void {
+		this.cancelMetricIndicator();
 		this.deactivateElapsedUpdates();
+		this.stopAnimationTicks();
+		this.releaseWorkingVisibility();
 		if (this.ownsIndicator) {
 			try {
-				ui.setWorkingIndicator();
+				ui.setWorkingIndicator?.();
 			} catch {
 				// Best-effort release after a partial public-API installation failure.
 			}
@@ -1470,16 +1843,20 @@ export class WorkingLineController {
 		this.frameKey = undefined;
 		this.installedPhase = undefined;
 		this.installedIndicatorOptions = undefined;
+		this.installedUi = undefined;
+		this.placementContext = undefined;
 		this.invalidateUnavailableExtensionSegments();
 	}
 
 	private reset(ctx: WorkingLineContext): void {
+		this.cancelMetricIndicator();
 		this.deactivateElapsedUpdates();
-		if (!this.ownsIndicator && !this.ownsMessage) return;
-		const ui = workingLineUi(ctx);
+		this.stopAnimationTicks();
+		this.releaseWorkingVisibility();
+		const ui = this.installedUi ?? workingLineUi(ctx);
 		if (ui && this.ownsIndicator) {
 			try {
-				ui.setWorkingIndicator();
+				ui.setWorkingIndicator?.();
 			} catch {
 				// Cleanup is best effort and remains idempotent.
 			}
@@ -1497,13 +1874,18 @@ export class WorkingLineController {
 		this.frameKey = undefined;
 		this.installedPhase = undefined;
 		this.installedIndicatorOptions = undefined;
+		this.installedUi = undefined;
+		this.placementContext = undefined;
 	}
 
 	private clearRuntime(): void {
+		this.cancelMetricIndicator();
+		this.lastMetricWriteAt = undefined;
 		this.deactivateElapsedUpdates();
 		this.agentActive = false;
 		this.activeTools.clear();
 		this.tokens = undefined;
+		this.tokenRate = "";
 		this.thought = undefined;
 		this.invalidateExtensionSegments();
 	}

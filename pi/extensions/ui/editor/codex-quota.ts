@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { ZentuiConfig } from "./config";
-import { sanitizeEditorMetadataText } from "./editor-metadata-format";
-import { collectFooterFormatReferences, parseFooterFormat } from "./footer-format";
+import type { ZentuiConfig } from "./config.ts";
+import { sanitizeEditorMetadataText } from "./editor-metadata-format.ts";
+import { collectFooterFormatReferences, parseFooterFormat } from "./footer-format.ts";
+import { minimalistTemplateReferences } from "./minimalist-template.ts";
 
 const INTERVAL = 60_000;
 const TIMEOUT = 10_000;
@@ -42,11 +43,17 @@ export function parseCodexQuota(value: unknown): CodexQuota | undefined {
 	return result.fiveHour !== undefined || result.week !== undefined ? result : undefined;
 }
 
+/** Providers whose quota may be displayed: polled for `openai-codex`, header-sourced for `openai`. */
+export function hasCodexQuotaProvider(provider: string | undefined): boolean {
+	return provider === "openai-codex" || provider === "openai";
+}
+
 export function editorWantsCodexQuota(config: ZentuiConfig): boolean {
 	const editor = config.components.editor;
 	if (!editor.enabled || !editor.codexQuota) return false;
+	if (editor.style === "minimalist")
+		return minimalistTemplateReferences(editor.styles.minimalist).has("codex_quota");
 	return (
-		editor.style === "minimalist" ||
 		editor.style === "accent-rail" ||
 		collectFooterFormatReferences(
 			parseFooterFormat(sanitizeEditorMetadataText(editor.styles[editor.style].metadataFormat)),
