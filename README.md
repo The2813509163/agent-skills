@@ -30,7 +30,7 @@ winget install --id Git.Git -e --source winget
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-skills/main/opencode-setup.sh)" -- -y
 ```
 
-先安装 OpenCode **v1 或 v2**；已有安装先退出 TUI 和后台服务。脚本按主版本部署插件，兼容旧散装入口；不升级宿主、不迁移会话库。默认同步 base skills；交互时可分别选择 research、accel、kb 组。只更新插件用 `--plugins-only`，预检用 `--check`，详见[安装与迁移](#opencode-安装与迁移)。
+先安装 OpenCode **v1 或 v2**；已有安装先退出 TUI 和后台服务。脚本按主版本部署插件，兼容旧散装入口；宿主升级在脚本里问一次（默认 Y，配置里自动更新默认关闭），不迁移会话库。默认同步 base skills；交互时可分别选择 research、accel、kb 组。只更新插件用 `--plugins-only`，预检用 `--check`，详见[安装与迁移](#opencode-安装与迁移)。
 
 **Pi**
 

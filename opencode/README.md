@@ -1,6 +1,6 @@
 # OpenCode 插件分发
 
-面向 OpenCode v1/v2 的安装、更新与旧入口迁移。setup 只用 `opencode --version` 识别主版本，**不安装／升级宿主，不启动服务，不迁移数据库**。Magic Context 刷新单独询问，默认 N。
+面向 OpenCode v1/v2 的安装、更新与旧入口迁移。setup 只用 `opencode --version` 识别主版本；**宿主升级在脚本里询问后执行 `opencode upgrade`（默认 Y），配置默认关闭自动更新**；不安装宿主、不启动服务、不迁移数据库。Magic Context 刷新单独询问，默认 N。
 
 ## 安装与更新
 
@@ -15,7 +15,7 @@ bash /tmp/opencode-setup.sh --plugins-only
 
 | 模式 | 执行范围 | 不执行 |
 | --- | --- | --- |
-| 默认完整安装 | 插件、依赖、配置、通用 skills；按交互选择执行 | 宿主／数据库升级 |
+| 默认完整安装 | 插件、依赖、配置、通用 skills；按交互选择执行；宿主升级需显式确认 | 数据库升级 |
 | `--plugins-only` | 自维护包、context-mode 及其 skills、官方包登记、claude-mem runtime／入口／MCP、旧入口迁移 | 模型模板、Python 环境、通用 skills、notify 安装、按键统一 |
 | `--check` | 下载校验自维护发布包，检查配置与 Magic Context，查询 Ponytail／Magic Context 版本，列出管理路径和待退役项 | 部署、更改配置／认证／数据库；也不试运行插件或检查全部依赖 |
 
