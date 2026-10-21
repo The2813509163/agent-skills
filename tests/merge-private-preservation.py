@@ -94,7 +94,7 @@ def run_engine(body, tmp):
     dest.write_text(json.dumps(LOCAL, indent=2), encoding="utf-8")
     tpl.write_text(json.dumps(TEMPLATE, indent=2), encoding="utf-8")
     proc = subprocess.run([sys.executable, str(engine), str(dest), str(tpl), str(cand)],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, encoding="utf-8", errors="replace")
     if proc.returncode:
         raise SystemExit(f"STOP: 合并引擎退出码 {proc.returncode}: {proc.stderr.strip()}")
     return json.loads(cand.read_text(encoding="utf-8"))
@@ -122,7 +122,7 @@ def run_fill(body, tmp, name, data):
     target = tmp / f"target-{name}"
     target.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     proc = subprocess.run([sys.executable, str(engine), str(target), GW, *KEYS, "mcp.example.com"],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, encoding="utf-8", errors="replace")
     if proc.returncode:
         raise SystemExit(f"STOP: 填空引擎退出码 {proc.returncode}: {proc.stderr.strip()}")
     return json.loads(target.read_text(encoding="utf-8"))
@@ -187,7 +187,7 @@ def check_web_migration():
             subprocess.run(cmd, check=True, capture_output=True)
             assert path.read_bytes() == before and not list(path.parent.glob("*.bak-*"))
             subprocess.run(cmd + ["--apply"], check=True, capture_output=True)
-            migrated = json.loads(path.read_text())
+            migrated = json.loads(path.read_text(encoding="utf-8"))
             servers = migrated
             for key in keys:
                 servers = servers[key]
@@ -201,15 +201,15 @@ def check_web_migration():
             before = path.read_bytes()
             result = subprocess.run(cmd + ["--apply"], capture_output=True)
             assert result.returncode != 0 and path.read_bytes() == before
-    match = SCRIPT.search((ROOT / "pi-setup.sh").read_text())
+    match = SCRIPT.search((ROOT / "pi-setup.sh").read_text(encoding="utf-8"))
     assert match is not None
     body = match.group(1)
     with tempfile.TemporaryDirectory() as d:
         dest, tpl, cand = [pathlib.Path(d) / name for name in ("dest.json", "tpl.json", "cand.json")]
         dest.write_text(json.dumps({"mcpServers": {"web": entry}}))
         tpl.write_text(json.dumps({"mcpServers": {"web": {"exposure": "direct", "toolExposure": {"search": "direct"}}, "codegraph": {"command": "codegraph"}}}))
-        subprocess.run([sys.executable, "-", str(dest), str(tpl), str(cand)], input=body, text=True, check=True, capture_output=True)
-        assert json.loads(cand.read_text())["mcpServers"]["web"] == entry
+        subprocess.run([sys.executable, "-", str(dest), str(tpl), str(cand)], input=body, text=True, encoding="utf-8", errors="replace", check=True, capture_output=True)
+        assert json.loads(cand.read_text(encoding="utf-8"))["mcpServers"]["web"] == entry
     print("web MCP: Pi / OpenCode v1/v2，预览、备份、凭据/禁用/工具保留、幂等、冲突保留通过")
 
 
