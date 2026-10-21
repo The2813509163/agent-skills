@@ -93,7 +93,7 @@ def main():
         fresh.mkdir()
         configure(fresh, bp)
         assert (fresh / ".bash_profile").exists()
-        assert "CtrlShiftShortcuts=yes" in (fresh / ".minttyrc").read_text()
+        assert "CtrlShiftShortcuts=yes" in (fresh / ".minttyrc").read_text(encoding="utf-8")
         for mode in ("-lc", "-ic"):
             assert "probe-ok" in shell(fresh, "agent_skills_probe", mode)
         path = shell(fresh, '. "$HOME/.bashrc"; . "$HOME/.bashrc"; printf %s "$PATH"')
@@ -117,11 +117,11 @@ def main():
             )
             (home / ".minttyrc").write_bytes(mintty.encode())
             configure(home, bp)
-            assert (home / ".bashrc").read_text().startswith(rc)
-            assert (home / login).read_text().startswith(profile)
+            assert (home / ".bashrc").read_text(encoding="utf-8").startswith(rc)
+            assert (home / login).read_text(encoding="utf-8").startswith(profile)
             assert (home / ".minttyrc").read_bytes() == mintty.encode()
-            assert any(p.read_text() == rc for p in home.glob(".bashrc.bak-*"))
-            assert any(p.read_text() == profile for p in home.glob(login + ".bak-*"))
+            assert any(p.read_text(encoding="utf-8") == rc for p in home.glob(".bashrc.bak-*"))
+            assert any(p.read_text(encoding="utf-8") == profile for p in home.glob(login + ".bak-*"))
             if login != ".bash_profile":
                 assert not (home / ".bash_profile").exists(), "不能遮蔽原有登录文件"
             assert shell(home, 'printf "%s:%s" "$KEEP_PROFILE" "$RC_COUNT"') == "yes:1"
@@ -140,7 +140,7 @@ def main():
         home.mkdir()
         (home / ".minttyrc").write_text("CtrlExchangeShift=yes\n")
         configure(home, bp)
-        assert "CtrlShiftShortcuts=" not in (home / ".minttyrc").read_text()
+        assert "CtrlShiftShortcuts=" not in (home / ".minttyrc").read_text(encoding="utf-8")
         print(
             "PASS other terminals untouched; CtrlExchangeShift does not gain dangerous shortcuts"
         )
@@ -162,7 +162,7 @@ def main():
             print(f"SKIP native symlink creation unavailable: {e.__class__.__name__}")
         else:
             assert configure(home, bp, ok=False).returncode != 0
-            assert target.read_text() == "unchanged\n"
+            assert target.read_text(encoding="utf-8") == "unchanged\n"
             assert not (home / ".bash_profile").exists()
         print("PASS malformed managed block fails before any write")
 
@@ -277,7 +277,7 @@ def main():
             runner = root / "merge-case.sh"
             runner.write_bytes(cmd.encode("utf-8"))
             run([BASH, "--noprofile", "--norc", "-eu", posix(runner)], env=env)
-            assert json.loads(dest.read_text()) == {
+            assert json.loads(dest.read_text(encoding="utf-8")) == {
                 "tuiMode": expected,
                 "defaultModel": "new",
             }
