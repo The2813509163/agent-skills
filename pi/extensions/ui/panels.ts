@@ -79,6 +79,7 @@ export default function (pi: ExtensionAPI) {
   let cache: ReturnType<typeof registerSidebarPanel> | undefined;
   let tasks: ReturnType<typeof registerSidebarPanel> | undefined;
   let packages: ReturnType<typeof registerSidebarPanel> | undefined;
+  let packagesTimer: ReturnType<typeof setTimeout> | undefined;
   function update(ctx: ExtensionContext) {
     if (ctx.mode !== "tui") return;
     // Same assistant-only accounting as Atelier's footer, including validity checks.
@@ -109,6 +110,7 @@ export default function (pi: ExtensionAPI) {
     });
   }
   function updatePackages() {
+    // installedPackages() 里的 git rev-parse 是同步的(本机实测约 140ms/次),首帧之后再算
     const installed = installedPackages();
     packages?.update({ id: "agent-skills:packages", title: `Plugins · ${installed.length}`, rows:
       installed.length ? installed.map(pkg => `${pkg.name} ${pkg.version}`) : ["No Pi packages installed"],
@@ -120,16 +122,18 @@ export default function (pi: ExtensionAPI) {
     cache = registerSidebarPanel(pi, { id: "agent-skills:cache", title: "Cache", rows: [] });
     tasks = registerSidebarPanel(pi, { id: "agent-skills:todos", title: "Tasks", rows: [] });
     packages = registerSidebarPanel(pi, { id: "agent-skills:packages", title: "Plugins", rows: [] });
-    updatePackages();
+    if (packagesTimer) clearTimeout(packagesTimer);
+    packagesTimer = setTimeout(updatePackages, 0);
     update(ctx);
   });
   pi.on("message_end", (_event, ctx) => update(ctx));
   pi.on("agent_settled", (_event, ctx) => update(ctx));
   pi.on("session_tree", (_event, ctx) => update(ctx));
   pi.on("session_compact", (_event, ctx) => update(ctx));
-  pi.on("session_shutdown", (_event, ctx) => {
+  pi.on("session_shutdown", () => {
+    if (packagesTimer) clearTimeout(packagesTimer);
+    packagesTimer = undefined;
     cache?.dispose(); tasks?.dispose(); packages?.dispose();
     cache = tasks = packages = undefined;
-    if (ctx.mode === "tui") ctx.ui.setWidget("agent-skills:usage", undefined);
   });
 }
