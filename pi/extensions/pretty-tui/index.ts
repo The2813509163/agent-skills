@@ -3465,9 +3465,13 @@ export default function prettyTui(pi: ExtensionAPI) {
       addPersistentActivityUpdate(event.message);
       return;
     }
-    if (event.message.role !== "user") return;
-    finishCleanGroup("done");
-    settleLastCleanGroup();
+    // 一条新的 assistant 消息意味着上一批工具调用已全部返回。按消息切组，
+    // 否则只有 thinking + toolCall、没有可见正文的模型（deepseek-flash）
+    // 会把整轮几十次工具调用并进同一组，组首之后的成员都不再渲染摘要行。
+    if (event.message.role === "assistant" || event.message.role === "user") {
+      finishCleanGroup("done");
+      settleLastCleanGroup();
+    }
   });
 
   // A visible assistant response is the boundary between tool groups. Seal
