@@ -398,19 +398,6 @@ export default function prettyTui(pi: ExtensionAPI) {
       }
     }
   };
-  // 折叠态下摘要行由组尾成员渲染；新成员接任组尾时，前一任必须重渲染才会丢掉
-  // 它那一行（否则同一组会出现两行摘要）。
-  const dropActivityTail = (group: ActivityGroup, current: ActivityMember): void => {
-    const previous = group.members[group.members.length - 2];
-    if (!previous || previous.id === current.id) return;
-    if (previous.kind === "tool" && previous.toolCallId) {
-      cleanToolComponents.get(previous.toolCallId)?.updateDisplay?.();
-    } else if (previous.kind === "thinking" && previous.messageKey) {
-      thinkingComponents.get(previous.messageKey)?.invalidate?.();
-    } else if (previous.kind === "update") {
-      activityUpdateComponents.get(previous.id)?.invalidate?.();
-    }
-  };
   const revealActivityGroup = (group: ActivityGroup, ui?: any): void => {
     collapsedActivityGroups.delete(group.id);
     revealedActivityGroups.add(group.id);
@@ -558,9 +545,9 @@ export default function prettyTui(pi: ExtensionAPI) {
     if (!activityGroupCollapsible(group)) return renderPendingActivityUpdate(member, width);
     const position = activityMemberPosition(group, member);
     if (!activityGroupRevealed(group)) {
-      if (!position.last) return [];
-      dropActivityTail(group, member);
-      return ["", ...renderActivityGroupSummary(group, width, true)];
+      return position.first
+        ? ["", ...renderActivityGroupSummary(group, width, true)]
+        : [];
     }
     return renderActivityUpdate(group, member, width);
   };
@@ -574,7 +561,7 @@ export default function prettyTui(pi: ExtensionAPI) {
     if (!isLeftClick || !activityGroupCollapsible(group)) return undefined;
     const position = activityMemberPosition(group, member);
     if (!activityGroupRevealed(group)) {
-      if (!position.last) return undefined;
+      if (!position.first) return undefined;
       revealActivityGroup(group);
       return { handled: true };
     }
@@ -1200,9 +1187,10 @@ export default function prettyTui(pi: ExtensionAPI) {
       ];
       const revealed = activityGroupRevealed(group);
       if (!revealed) {
-        if (!position.last) return appendTail([]);
-        dropActivityTail(group, member);
-        return appendTail(["", ...renderActivityGroupSummary(group, width, true)]);
+        const activityLines = position.first
+          ? ["", ...renderActivityGroupSummary(group, width, true)]
+          : [];
+        return appendTail(activityLines);
       }
 
       const groupTheme = activityGroupTheme(group);
@@ -1215,10 +1203,10 @@ export default function prettyTui(pi: ExtensionAPI) {
       // Clean mode owns thought disclosure: revealing a group shows the thought
       // member, while only a member click (or Ctrl+O) reveals its full text.
       const expanded = cleanToolsExpanded || expandedThinkingMembers.has(member.id);
-      const settledOwner = position.last ? activityGroupOwner(group) : undefined;
+      const settledOwner = position.first ? activityGroupOwner(group) : undefined;
       // A group without tools has no durable summary, so its own boundary is
       // the signal that it finished.
-      const stableSummary = !position.last || (
+      const stableSummary = !position.first || (
         settledOwner
           ? Boolean(settledSummaries.has(settledOwner) && !toolActivityHolds.has(settledOwner))
           : activityTimeline.isSettled(group.id)
@@ -1313,7 +1301,7 @@ export default function prettyTui(pi: ExtensionAPI) {
 
       if (!activityGroupRevealed(group)) {
         if (!isLeftClick) return undefined;
-        if (position.last) revealActivityGroup(group);
+        if (position.first) revealActivityGroup(group);
         return { handled: true };
       }
       const summaryHeight = position.first ? renderActivityGroupSummary(group, event.width).length : 0;
@@ -2540,9 +2528,9 @@ export default function prettyTui(pi: ExtensionAPI) {
       if (renderMode !== "clean" || !group) return originalToolRender.call(this, width);
       const position = activityMemberPosition(group, member);
       if (!activityGroupRevealed(group)) {
-        if (!position.last) return [];
-        dropActivityTail(group, member);
-        return ["", ...renderActivityGroupSummary(group, width, true)];
+        return position.first
+          ? ["", ...renderActivityGroupSummary(group, width, true)]
+          : [];
       }
 
       const childTheme = cleanThemeForToolCall(this.toolCallId) ?? activityGroupTheme(group);
@@ -2636,7 +2624,7 @@ export default function prettyTui(pi: ExtensionAPI) {
       const position = activityMemberPosition(group, member);
       const revealed = activityGroupRevealed(group);
 
-      if (!revealed && position.last && isLeftClick) {
+      if (!revealed && position.first && isLeftClick) {
         revealCleanGroup(group, this.ui);
         return { handled: true };
       }
@@ -3477,11 +3465,10 @@ export default function prettyTui(pi: ExtensionAPI) {
       addPersistentActivityUpdate(event.message);
       return;
     }
-    // 只有用户消息是硬边界。此前按 assistant 消息切组，是为了绕开"组内非首个
-    // 成员不渲染摘要行"的限制（deepseek-flash 这类只回 thinking + toolCall、没有
-    // 可见正文的模型），代价是一轮里每次模型调用都变成独立的 1 thought 行。
-    // 现在摘要行挂在组尾成员上（见 dropActivityTail），组可以跨消息累积成
-    // "Running 5 tool calls · 3 thoughts" → "Done"。
+    // 只有用户消息是硬边界，与上游 pi-pretty-tui(0.2.4→0.3.0) 一致：一轮里的工具
+    // 与思考累积进同一组，折叠成一行 Running(...) → Done(...)。0802e18 曾按 assistant
+    // 消息切组，是为了绕开"组内非首个成员不渲染摘要行"（deepseek-flash 这类只回
+    // thinking + toolCall 的模型），代价是每次模型调用都变成独立的 1 thought 行。
     if (event.message.role === "user") {
       finishCleanGroup("done");
       settleLastCleanGroup();
