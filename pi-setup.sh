@@ -455,8 +455,14 @@ except Exception as e:
     sys.exit(1)
 
 # UI 模式是用户/终端偏好,重跑不能把已验证的 regular 又覆盖成 fullscreen。
-if 'tuiMode' in cur:
-    new['tuiMode'] = cur['tuiMode']
+# 例外:Windows 非 mintty 终端(如 Windows Terminal)里 regular 会让所有鼠标点击失效,
+# 而侧栏是 overlay 挂载又会挡住 /settings 切换,只能按平台默认纠正。
+if os.environ.get('TERM_PROGRAM') == 'mintty' or sys.platform != 'win32':
+    if 'tuiMode' in cur:
+        new['tuiMode'] = cur['tuiMode']
+elif cur.get('tuiMode') == 'regular':
+    new['tuiMode'] = 'fullscreen'
+    print('WARN: tuiMode regular -> fullscreen(该终端下 regular 模式没有鼠标点击)', file=sys.stderr)
 
 UNION_KEYS = ('packages', 'enabledModels')   # 列表型:并集而非整表替换,别把本机改动冲掉
 
