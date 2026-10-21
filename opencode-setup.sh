@@ -623,14 +623,18 @@ oc_tpl="$(mktemp)"; oc_cand="$(mktemp)"
 oc_link="$CFG/opencode.json"
 oc_target="$oc_link"
 if [ -L "$oc_link" ]; then
-  oc_target="$(readlink -f "$oc_link" 2>/dev/null || true)"
-  if [ -z "$oc_target" ]; then   # macOS 旧版 readlink 没有 -f:按链接内容拼回绝对路径
-    oc_target="$(readlink "$oc_link")"
-    case "$oc_target" in /*) ;; *) oc_target="$(dirname "$oc_link")/$oc_target" ;; esac
-  fi
+  # 不用 readlink -f:macOS 旧版没有它,Git Bash 上它也不解 Windows 原生链接(会把链接本身当目标)
+  oc_target="$(readlink "$oc_link")"
+  case "$oc_target" in /*|[A-Za-z]:/*) ;; *) oc_target="$(dirname "$oc_link")/$oc_target" ;; esac
+  for _oc_hop in 1 2 3 4 5 6 7 8; do   # 链接套链接:逐跳解到真正的文件
+    [ -L "$oc_target" ] || break
+    _oc_next="$(readlink "$oc_target")"
+    case "$_oc_next" in /*|[A-Za-z]:/*) oc_target="$_oc_next" ;; *) oc_target="$(dirname "$oc_target")/$_oc_next" ;; esac
+  done
+  unset _oc_hop _oc_next
   echo "符号链接: $oc_link → $oc_target(写穿链接,保留链接本身)"
 fi
-# 已有配置里的自动更新档位:auto 时问一次是否改成手动,其余原值保留
+# 已有配置里的自动更新档位:只有 auto 才问一次,notify/disable/false 是本机明确选择,原样保留
 oc_cur_update="$(python3 - "$oc_target" "$OC_MAJOR" <<'PY_OC_UPDATE'
 import json, re, sys
 p, major = sys.argv[1], sys.argv[2]
@@ -640,25 +644,22 @@ try:
     d = json.loads(re.sub(r',(\s*[}\]])', r'\1', t))
 except Exception:
     sys.exit(0)
+# 只区分「自动」与「已手动」:notify/disable/false 都是本机明确选过的,不再问
 if major == '2':
     value = d.get('update')
-    if value is None:                       # v2 仍可能留着 v1 的 autoupdate,按同一语义判断
-        legacy = d.get('autoupdate')
-        if legacy is None:
-            sys.exit(0)
-        value = 'disable' if legacy is False else 'on'
-    elif value != 'disable':
-        value = 'on'
+    if value is None:                       # v2 仍可能留着 v1 的 autoupdate
+        value = d.get('autoupdate')
+    if value is None:
+        sys.exit(0)
 else:
     value = d.get('autoupdate')
     if value is None:
         sys.exit(0)
-    value = 'disable' if value is False else 'on'
-print(value)
+print('auto' if value is True or value == 'auto' else 'keep')
 PY_OC_UPDATE
 )"
 oc_force_manual=0
-if [ "$oc_cur_update" = "on" ] && ask "OpenCode 当前允许自动更新(升级会打断正在运行的进程),改为只在 setup 里手动升级?" Y; then
+if [ "$oc_cur_update" = "auto" ] && ask "OpenCode 当前允许自动更新(升级会打断正在运行的进程),改为只在 setup 里手动升级?" Y; then
   oc_force_manual=1
 fi
 # 上次跳过的 key 这次补上:先填本地文件里的占位符(改前存 .bak),再走正常合并(live 优先)

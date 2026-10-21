@@ -17,6 +17,7 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPT = re.compile(r'python3 - "\$dest" "\$tmp" "\$cand" <<\'PYEOF\'\n(.*?)\nPYEOF', re.S)
 OC_MERGE = re.compile(r'python3 - "\$CFG/opencode\.json" "\$CFG/opencode\.jsonc" "\$oc_tpl" "\$oc_cand" "\$OC_MAJOR" "\$oc_force_manual" <<\'PYEOF\'\n(.*?)\nPYEOF', re.S)
+OC_UPDATE = re.compile(r"python3 - \"\$oc_target\" \"\$OC_MAJOR\" <<'PY_OC_UPDATE'\n(.*?)\nPY_OC_UPDATE", re.S)
 FILL = re.compile(r'python3 - "\$1" "\$GW_BASE" "\$K_CLAUDE" "\$K_CODEX" "\$K_ANTHROPIC" "\$K_EMBED" "\$K_MEM" "\$MCPHUB_HOST" <<\'PYEOF\'\n(.*?)\nPYEOF', re.S)
 
 LOCAL = {
@@ -252,9 +253,38 @@ def check_opencode_update_policy():
     print(f"opencode.json: 自动更新档位检查 {len(cases)} 项")
 
 
+def check_opencode_update_detection():
+    """档位探测:只有 auto/true 才需要询问;notify/disable/false 是本机明确选择。"""
+    text = (ROOT / "opencode-setup.sh").read_text(encoding="utf-8")
+    match = OC_UPDATE.search(text)
+    assert match is not None, "opencode-setup.sh 里找不到自动更新档位探测片段"
+    engine = match.group(1)
+    cases = [
+        ({"update": "auto"}, "2", "auto"),
+        ({"update": "notify"}, "2", "keep"),
+        ({"update": "disable"}, "2", "keep"),
+        ({"autoupdate": True}, "2", "auto"),      # v2 仍带着 v1 字段
+        ({"autoupdate": False}, "2", "keep"),
+        ({}, "2", None),                          # 没写过档位:交给合并默认值
+        ({"autoupdate": True}, "1", "auto"),
+        ({"autoupdate": "notify"}, "1", "keep"),
+        ({"autoupdate": False}, "1", "keep"),
+    ]
+    for live, major, want in cases:
+        with tempfile.TemporaryDirectory() as d:
+            path = pathlib.Path(d) / "opencode.json"
+            path.write_text(json.dumps(live), encoding="utf-8")
+            proc = subprocess.run([sys.executable, "-c", engine, str(path), major],
+                                  capture_output=True, text=True, encoding="utf-8", errors="replace")
+        got = proc.stdout.strip() or None
+        assert got == want, f"v{major} {live}: 探测 = {got!r},期望 {want!r}"
+    print(f"opencode.json: 档位探测检查 {len(cases)} 项")
+
+
 def main():
     check_web_migration()
     check_opencode_update_policy()
+    check_opencode_update_detection()
     failures = []
     for script, body, fill in engines():
         with tempfile.TemporaryDirectory() as d:
