@@ -16,6 +16,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPT = re.compile(r'python3 - "\$dest" "\$tmp" "\$cand" <<\'PYEOF\'\n(.*?)\nPYEOF', re.S)
+OC_MERGE = re.compile(r'python3 - "\$CFG/opencode\.json" "\$CFG/opencode\.jsonc" "\$oc_tpl" "\$oc_cand" "\$OC_MAJOR" "\$oc_force_manual" <<\'PYEOF\'\n(.*?)\nPYEOF', re.S)
 FILL = re.compile(r'python3 - "\$1" "\$GW_BASE" "\$K_CLAUDE" "\$K_CODEX" "\$K_ANTHROPIC" "\$K_EMBED" "\$K_MEM" "\$MCPHUB_HOST" <<\'PYEOF\'\n(.*?)\nPYEOF', re.S)
 
 LOCAL = {
@@ -213,8 +214,47 @@ def check_web_migration():
     print("web MCP: Pi / OpenCode v1/v2，预览、备份、凭据/禁用/工具保留、幂等、冲突保留通过")
 
 
+def run_oc_merge(body, tmp, live, major, force):
+    engine = tmp / "oc_engine.py"
+    engine.write_text(body, encoding="utf-8")
+    target, jsonc, tpl, cand = tmp / "opencode.json", tmp / "opencode.jsonc", tmp / "tpl.json", tmp / "cand.json"
+    target.write_text(json.dumps(live, indent=2), encoding="utf-8")
+    tpl.write_text(json.dumps({"$schema": "x", "autoupdate": False, "retry": {"enabled": True}}, indent=2), encoding="utf-8")
+    proc = subprocess.run(
+        [sys.executable, str(engine), str(target), str(jsonc), str(tpl), str(cand), major, "1" if force else "0"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if proc.returncode:
+        raise SystemExit(f"STOP: opencode.json 合并引擎退出码 {proc.returncode}: {proc.stderr.strip()}")
+    return json.loads(cand.read_text(encoding="utf-8"))
+
+
+def check_opencode_update_policy():
+    match = OC_MERGE.search((ROOT / "opencode-setup.sh").read_text(encoding="utf-8"))
+    assert match is not None, "opencode-setup.sh 里找不到 opencode.json 合并引擎"
+    body = match.group(1)
+    cases = [
+        ({"update": "notify"}, "2", False, "update", "notify", "本机显式档位保留"),
+        ({"update": "auto"}, "2", True, "update", "disable", "确认后改成手动"),
+        ({"autoupdate": True}, "2", False, "update", "disable", "v1 遗留 auto 按默认关"),
+        ({"autoupdate": True}, "2", True, "update", "disable", "v1 遗留 auto 确认后关"),
+        ({}, "1", False, "autoupdate", False, "v1 首次写入默认关"),
+        ({"autoupdate": True}, "1", True, "autoupdate", False, "v1 确认后关"),
+    ]
+    for live, major, force, key, want, why in cases:
+        with tempfile.TemporaryDirectory() as d:
+            merged = run_oc_merge(body, pathlib.Path(d), live, major, force)
+        got = merged.get(key)
+        assert got == want, f"v{major} {why}: {key} = {got!r},期望 {want!r}"
+        if major == "2":
+            assert "autoupdate" not in merged, f"v2 仍留着 v1 的 autoupdate: {merged.get('autoupdate')!r}"
+        else:
+            assert "update" not in merged, "v1 不该写入 v2 原生字段 update"
+    print(f"opencode.json: 自动更新档位检查 {len(cases)} 项")
+
+
 def main():
     check_web_migration()
+    check_opencode_update_policy()
     failures = []
     for script, body, fill in engines():
         with tempfile.TemporaryDirectory() as d:

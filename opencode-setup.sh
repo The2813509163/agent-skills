@@ -3,7 +3,8 @@
 # 仓库: brilliantrough/agent-skills
 #
 # 用法：bash opencode-setup.sh [-y|--yes] [--plugins-only|--check]；先安装 OpenCode，按主版本拉取对应预构建包。
-# 完整安装含配置、依赖与通用 skills；--plugins-only 仅插件及 context-mode skills；--check 下载校验后退出。
+# 完整安装含宿主升级(默认 Y)、配置、依赖与通用 skills；--plugins-only 仅插件及 context-mode skills；--check 下载校验后退出。
+# 配置默认关闭 OpenCode 自动更新(v2 update:disable / v1 autoupdate:false)，宿主只在本脚本里升级。
 # 更新前先退出 TUI 和后台服务；已知旧入口移到配置目录 .agent-skills-backups/。
 # 第三方 npm 插件先查本地/npm latest；Ponytail 常规更新默认 Y，Magic Context 单独默认 N；claude-mem 由官方安装器更新 runtime 与宿主入口。
 # 确认后只备份移走对应 latest 缓存并改回官方包登记；下次宿主启动下载。
@@ -86,7 +87,7 @@ command -v opencode >/dev/null 2>&1 || { echo "ERROR: 请先安装 OpenCode v1 �
 OC_VERSION="$(opencode --version)"
 if [[ "$OC_VERSION" =~ (^|[[:space:]])v?([12])\.[0-9]+\.[0-9]+ ]]; then OC_MAJOR="${BASH_REMATCH[2]}"
 else echo "ERROR: 无法识别或暂不支持的 OpenCode 版本: $OC_VERSION" >&2; exit 1; fi
-echo "客户端: $OC_VERSION → v$OC_MAJOR 插件包；不升级宿主/不迁移数据库"
+echo "客户端: $OC_VERSION → v$OC_MAJOR 插件包；自动更新默认关闭,宿主只在本脚本里升级/不迁移数据库"
 OC_RELEASE="opencode-plugins-1.0.15"
 CFG="${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
 PLUGINS="$CFG/plugins"
@@ -113,6 +114,16 @@ ask() { # $1=提示 $2=默认(Y/N,缺省 N)
   fi
 }
 
+# 宿主升级：自动更新关掉之后，升级只发生在这里（默认 Y，失败只警告）。
+# --plugins-only / --check 只碰插件与配置，不升级宿主。
+if [ "$PLUGINS_ONLY" = 0 ] && ask "更新 OpenCode 到最新版(opencode upgrade)?" Y; then
+  if opencode upgrade; then
+    OC_VERSION="$(opencode --version)"
+    if [[ "$OC_VERSION" =~ (^|[[:space:]])v?([12])\.[0-9]+\.[0-9]+ ]]; then
+      OC_MAJOR="${BASH_REMATCH[2]}"; echo "客户端: $OC_VERSION → v$OC_MAJOR"
+    else echo "WARN: 升级后版本无法识别($OC_VERSION)，按原 v$OC_MAJOR 继续" >&2; fi
+  else echo "WARN: opencode upgrade 失败，继续用当前版本 $OC_VERSION" >&2; fi
+fi
 RAW="https://raw.githubusercontent.com/brilliantrough/dot_file/master"
 # 本仓原始文件入口：skills 同步器、项目规范块等；插件产物从固定 release 获取。
 SELF_RAW="https://raw.githubusercontent.com/brilliantrough/agent-skills/main"
@@ -607,7 +618,49 @@ fi
 # ---- 4. opencode.json(来自 dot_file 仓库:providers/agents/mcp/插件条目/compaction)----
 # 已存在则只覆盖各 provider 的 models(新模型自动下发),options(apiKey/网关)等本地字段保留;
 # 老 opencode.jsonc 的值自动并入 opencode.json 后退役为 .migrated.bak
+# 自动更新默认关闭:v2 写 update:"disable",v1 写 autoupdate:false;已有非 auto 的选择尊重原值,auto 问一次
 oc_tpl="$(mktemp)"; oc_cand="$(mktemp)"
+oc_link="$CFG/opencode.json"
+oc_target="$oc_link"
+if [ -L "$oc_link" ]; then
+  oc_target="$(readlink -f "$oc_link" 2>/dev/null || true)"
+  if [ -z "$oc_target" ]; then   # macOS 旧版 readlink 没有 -f:按链接内容拼回绝对路径
+    oc_target="$(readlink "$oc_link")"
+    case "$oc_target" in /*) ;; *) oc_target="$(dirname "$oc_link")/$oc_target" ;; esac
+  fi
+  echo "符号链接: $oc_link → $oc_target(写穿链接,保留链接本身)"
+fi
+# 已有配置里的自动更新档位:auto 时问一次是否改成手动,其余原值保留
+oc_cur_update="$(python3 - "$oc_target" "$OC_MAJOR" <<'PY_OC_UPDATE'
+import json, re, sys
+p, major = sys.argv[1], sys.argv[2]
+try:
+    t = open(p, encoding='utf-8').read()
+    t = re.sub(r'^\s*(//|/\*).*$', '', t, flags=re.M)
+    d = json.loads(re.sub(r',(\s*[}\]])', r'\1', t))
+except Exception:
+    sys.exit(0)
+if major == '2':
+    value = d.get('update')
+    if value is None:                       # v2 仍可能留着 v1 的 autoupdate,按同一语义判断
+        legacy = d.get('autoupdate')
+        if legacy is None:
+            sys.exit(0)
+        value = 'disable' if legacy is False else 'on'
+    elif value != 'disable':
+        value = 'on'
+else:
+    value = d.get('autoupdate')
+    if value is None:
+        sys.exit(0)
+    value = 'disable' if value is False else 'on'
+print(value)
+PY_OC_UPDATE
+)"
+oc_force_manual=0
+if [ "$oc_cur_update" = "on" ] && ask "OpenCode 当前允许自动更新(升级会打断正在运行的进程),改为只在 setup 里手动升级?" Y; then
+  oc_force_manual=1
+fi
 # 上次跳过的 key 这次补上:先填本地文件里的占位符(改前存 .bak),再走正常合并(live 优先)
 if [ -f "$CFG/opencode.json" ] && [ -n "$GW_BASE$K_CLAUDE$K_CODEX$K_ANTHROPIC$K_EMBED$K_MEM$MCPHUB_HOST" ] \
    && grep -q '<YOUR_' "$CFG/opencode.json" 2>/dev/null; then
@@ -617,7 +670,7 @@ if [ -f "$CFG/opencode.json" ] && [ -n "$GW_BASE$K_CLAUDE$K_CODEX$K_ANTHROPIC$K_
 fi
 if [ "$web_mcp_ready" = 1 ] && curl -fsSL --connect-timeout 8 -m 30 -o "$oc_tpl" "$RAW/opencode/opencode.json"; then
   fill_template_placeholders "$oc_tpl"
-  oc_out="$(python3 - "$CFG/opencode.json" "$CFG/opencode.jsonc" "$oc_tpl" "$oc_cand" <<'PYEOF'
+  oc_out="$(python3 - "$CFG/opencode.json" "$CFG/opencode.jsonc" "$oc_tpl" "$oc_cand" "$OC_MAJOR" "$oc_force_manual" <<'PYEOF'
 import json, re, os, sys
 
 target_p, jsonc_p, tpl_p = sys.argv[1:4]
@@ -677,6 +730,17 @@ if isinstance(live.get('mcp'), dict) and 'servers' in live['mcp']:
     tpl['mcp'] = {'servers': {k: {**{a:b for a,b in v.items() if a != 'enabled'}, 'disabled': not v.get('enabled', True)} for k,v in tpl.get('mcp', {}).items()}}
 
 merged = deep_merge(tpl, live)
+# 自动更新:默认关闭,显式问过(auto→手动)时强制关闭;v2 只认 update,v1 只认 autoupdate
+major, force_manual = sys.argv[5], sys.argv[6] == '1'
+if major == '2':
+    had_legacy = merged.pop('autoupdate', None) is not None
+    if force_manual or 'update' not in merged:
+        merged['update'] = 'disable'
+    if had_legacy:
+        print('INFO: 移除 v1 的 autoupdate(v2 只认 update=%r)' % merged.get('update'), file=sys.stderr)
+else:
+    if force_manual or 'autoupdate' not in merged:
+        merged['autoupdate'] = False
 tpl_prov = tpl.get('provider') or {}
 live_prov = live.get('provider') or {}
 mp = merged.setdefault('provider', {}) if tpl_prov else {}
@@ -707,7 +771,7 @@ PYEOF
                    if [ -f "$CFG/opencode.json" ]; then
                      cp -p "$CFG/opencode.json" "$CFG/opencode.json.bak-$(date +%Y%m%d%H%M%S)"
                    fi
-                   mv "$oc_cand" "$CFG/opencode.json"
+                   mv "$oc_cand" "$oc_target"
                  fi
                  echo "updated: $CFG/opencode.json"
                  if [ -f "$CFG/opencode.jsonc" ]; then
@@ -836,7 +900,7 @@ fi
 # ---- claude-mem：配置合并后由官方安装器更新 runtime、插件与 MCP ----
 if command -v npx >/dev/null 2>&1 && ask "更新 claude-mem runtime／官方插件／MCP（会停止共享 worker，之后手工重启）?" Y; then
   (
-    for file in "$SETTINGS" "$CFG/opencode.json" "$CLAUDE_PLUGIN"; do
+    for file in "$SETTINGS" "$CLAUDE_PLUGIN"; do
       [ ! -L "$file" ] || { echo "ERROR: $file 是符号链接，跳过 claude-mem 更新" >&2; exit 1; }
     done
     backup="$CFG/.agent-skills-backups/$(date +%Y%m%d%H%M%S)-claude-mem"
