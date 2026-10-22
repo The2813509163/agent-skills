@@ -769,6 +769,18 @@ export default function prettyTui(pi: ExtensionAPI) {
   // Give Pi's main prompt editor a complete rounded frame. Render the native
   // editor at a two-column narrower width so cursor layout, wrapping, IME, and
   // autocomplete remain native, then add one themed border column per side.
+  // 会话切换(/new、/resume、/fork、/reload)时 Pi 先发 session_shutdown、再发 session_start，
+  // 而扩展模块只加载一次：补丁不在新会话里重装，clean 渲染就会整体失效（思考退回原生
+  // 折叠行、工具退回原生块），只剩持久化 entry 渲染的汇总行。
+  const patchInstalls: Array<() => void> = [];
+  const registerPatchInstall = (install: () => void) => {
+    install();
+    patchInstalls.push(install);
+  };
+  pi.on("session_start", () => {
+    for (const install of patchInstalls) install();
+  });
+
   const customEditorPrototype = CustomEditor.prototype as any;
   const editorFramePatchKey = Symbol.for("pretty-tui.rounded-editor-frame");
   // The shared composer owns editor framing.
@@ -875,7 +887,8 @@ export default function prettyTui(pi: ExtensionAPI) {
   // Keep Pi's Markdown, mouse handling and OSC 133 zones in every mode.
   const userMessagePrototype = UserMessageComponent.prototype as any;
   const userMessagePatchKey = Symbol.for("pretty-tui.user-message-frame");
-  if (!userMessagePrototype[userMessagePatchKey]) {
+  const installUserMessagePatch = () => {
+    if (userMessagePrototype[userMessagePatchKey]) return;
     const originalUserMessageRebuild = userMessagePrototype.rebuild;
     const patchedUserMessageRebuild = function (this: any) {
       originalUserMessageRebuild.call(this);
@@ -1053,7 +1066,8 @@ export default function prettyTui(pi: ExtensionAPI) {
         delete userMessagePrototype[userMessagePatchKey];
       }
     });
-  }
+  };
+  registerPatchInstall(installUserMessagePatch);
 
   const customMessageKey = (message: any): string => {
     if (message?.timestamp !== undefined) {
@@ -1102,7 +1116,8 @@ export default function prettyTui(pi: ExtensionAPI) {
   let closeCleanAtStandaloneAlert = () => activityTimeline.boundary();
   const customMessagePrototype = CustomMessageComponent.prototype as any;
   const customMessagePatchKey = Symbol.for("pretty-tui.clean-custom-message");
-  if (!customMessagePrototype[customMessagePatchKey]) {
+  const installCustomMessagePatch = () => {
+    if (customMessagePrototype[customMessagePatchKey]) return;
     const originalCustomRender = customMessagePrototype.render;
     const originalCustomHandleMouse = customMessagePrototype.handleMouse;
     const releaseSemanticCustomMessage = (component: any): boolean => {
@@ -1175,12 +1190,14 @@ export default function prettyTui(pi: ExtensionAPI) {
         delete customMessagePrototype[customMessagePatchKey];
       }
     });
-  }
+  };
+  registerPatchInstall(installCustomMessagePatch);
 
   // Keep Pi's compaction content and expansion state inside the shared panel.
   const compactionPrototype = CompactionSummaryMessageComponent.prototype as any;
   const compactionPatchKey = Symbol.for("pretty-tui.compaction-panel");
-  if (!compactionPrototype[compactionPatchKey]) {
+  const installCompactionPatch = () => {
+    if (compactionPrototype[compactionPatchKey]) return;
     const originalRender = compactionPrototype.render;
     const originalHandleMouse = compactionPrototype.handleMouse;
     const views = new WeakMap<object, { width: number; sourceOffset: number; frame: ReturnType<typeof frameNativeRows> }>();
@@ -1233,14 +1250,16 @@ export default function prettyTui(pi: ExtensionAPI) {
         delete compactionPrototype[compactionPatchKey];
       }
     });
-  }
+  };
+  registerPatchInstall(installCompactionPatch);
 
   // Thinking and tools are peers in the transcript-first activity timeline.
   // Assistant components keep Pi's native visible-answer Markdown renderer.
   // All modes share thought content; only clean adds activity-group framing.
   const assistantPrototype = AssistantMessageComponent.prototype as any;
   const thinkingPatchKey = Symbol.for("pretty-tui.clean-thinking");
-  if (!assistantPrototype[thinkingPatchKey]) {
+  const installThinkingPatch = () => {
+    if (assistantPrototype[thinkingPatchKey]) return;
     const originalUpdateContent = assistantPrototype.updateContent;
     const originalRender = assistantPrototype.render;
     const originalHandleMouse = assistantPrototype.handleMouse;
@@ -1663,7 +1682,8 @@ export default function prettyTui(pi: ExtensionAPI) {
         delete assistantPrototype[thinkingPatchKey];
       }
     });
-  }
+  };
+  registerPatchInstall(installThinkingPatch);
 
   // Extension shortcuts cannot replace Pi's built-in Ctrl+O binding. Wrap
   // the exported state transition instead, so both Ctrl+O and UI callers keep
@@ -1735,7 +1755,8 @@ export default function prettyTui(pi: ExtensionAPI) {
 
   const interactiveModePrototype = InteractiveMode.prototype as any;
   const toolsExpansionPatchKey = Symbol.for("pretty-tui.clean-tool-expansion");
-  if (!interactiveModePrototype[toolsExpansionPatchKey]) {
+  const installToolsExpansionPatch = () => {
+    if (interactiveModePrototype[toolsExpansionPatchKey]) return;
     const originalSetToolsExpanded = interactiveModePrototype.setToolsExpanded;
     const originalToggleToolOutputExpansion = interactiveModePrototype.toggleToolOutputExpansion;
     const originalRenderSessionEntries = interactiveModePrototype.renderSessionEntries;
@@ -2156,7 +2177,8 @@ export default function prettyTui(pi: ExtensionAPI) {
         delete interactiveModePrototype[toolsExpansionPatchKey];
       }
     });
-  }
+  };
+  registerPatchInstall(installToolsExpansionPatch);
 
   // Allow same-row horizontal jitter only on our interactive regions. Keep
   // real drags, links, ordinary transcript selection, and multi-click rules native.
@@ -2164,7 +2186,8 @@ export default function prettyTui(pi: ExtensionAPI) {
   const cleanSummaryClickPatchKey = Symbol.for("pretty-tui.clean-summary-click");
   const cleanSummaryPressKey = Symbol("pretty-tui.clean-summary-press");
   const cleanControlPressKey = Symbol("pretty-tui.control-press");
-  if (!altScreenPrototype[cleanSummaryClickPatchKey]) {
+  const installCleanSummaryClickPatch = () => {
+    if (altScreenPrototype[cleanSummaryClickPatchKey]) return;
     const originalHandleSelectionMouseEvent = altScreenPrototype.handleSelectionMouseEvent;
     const originalHandleMouseEvent = altScreenPrototype.handleMouseEvent;
     const summaryAtPoint = (screen: any, x: number, y: number): boolean => {
@@ -2258,6 +2281,7 @@ export default function prettyTui(pi: ExtensionAPI) {
 
     pi.on("session_shutdown", () => {
       const patch = altScreenPrototype[cleanSummaryClickPatchKey];
+      if (!patch) return;
       if (patch?.patchedHandleMouseEvent === altScreenPrototype.handleMouseEvent) {
         altScreenPrototype.handleMouseEvent = patch.originalHandleMouseEvent;
       }
@@ -2272,7 +2296,8 @@ export default function prettyTui(pi: ExtensionAPI) {
         delete altScreenPrototype[cleanSummaryClickPatchKey];
       }
     });
-  }
+  };
+  registerPatchInstall(installCleanSummaryClickPatch);
 
   // Refine Pi's Markdown presentation while preserving its parser and themes.
   const markdownPrototype = Markdown.prototype as any;
@@ -2280,7 +2305,8 @@ export default function prettyTui(pi: ExtensionAPI) {
   const codeBlockCollectionKey = Symbol("pretty-tui.code-block-collection");
   const codeBlockRegionsKey = Symbol("pretty-tui.code-block-regions");
   const transcriptMarkdownStateKey = Symbol("pretty-tui.transcript-markdown-state");
-  if (!markdownPrototype[codeBlockPatchKey]) {
+  const installCodeBlockPatch = () => {
+    if (markdownPrototype[codeBlockPatchKey]) return;
     const originalInvalidate = markdownPrototype.invalidate;
     const originalRender = markdownPrototype.render;
     const originalRenderToken = markdownPrototype.renderToken;
@@ -2562,6 +2588,7 @@ export default function prettyTui(pi: ExtensionAPI) {
 
     pi.on("session_shutdown", () => {
       const patch = markdownPrototype[codeBlockPatchKey];
+      if (!patch) return;
       if (patch?.patchedInvalidate === markdownPrototype.invalidate) {
         markdownPrototype.invalidate = patch.originalInvalidate;
       }
@@ -2585,10 +2612,12 @@ export default function prettyTui(pi: ExtensionAPI) {
         delete markdownPrototype[codeBlockPatchKey];
       }
     });
-  }
+  };
+  registerPatchInstall(installCodeBlockPatch);
 
   const listPatchKey = Symbol.for("pretty-tui.list-bullets");
-  if (!markdownPrototype[listPatchKey]) {
+  const installListPatch = () => {
+    if (markdownPrototype[listPatchKey]) return;
     const originalRenderList = markdownPrototype.renderList;
     const patchedRenderList = function (
       this: any,
@@ -2612,12 +2641,14 @@ export default function prettyTui(pi: ExtensionAPI) {
 
     pi.on("session_shutdown", () => {
       const patch = markdownPrototype[listPatchKey];
+      if (!patch) return;
       if (patch?.patchedRenderList === markdownPrototype.renderList) {
         markdownPrototype.renderList = patch.originalRenderList;
       }
       if (patch) delete markdownPrototype[listPatchKey];
     });
-  }
+  };
+  registerPatchInstall(installListPatch);
 
   const textContent = (result: any): string =>
     result.content
@@ -3038,7 +3069,8 @@ export default function prettyTui(pi: ExtensionAPI) {
   // component's own execution boundary too, so the first clean render names it.
   const toolExecutionPrototype = ToolExecutionComponent.prototype as any;
   const toolExecutionPatchKey = Symbol.for("pretty-tui.clean-tool-execution");
-  if (!toolExecutionPrototype[toolExecutionPatchKey]) {
+  const installToolExecutionPatch = () => {
+    if (toolExecutionPrototype[toolExecutionPatchKey]) return;
     const originalMarkExecutionStarted = toolExecutionPrototype.markExecutionStarted;
     const originalSetExpanded = toolExecutionPrototype.setExpanded;
     const originalToolRender = toolExecutionPrototype.render;
@@ -3337,7 +3369,8 @@ export default function prettyTui(pi: ExtensionAPI) {
         delete toolExecutionPrototype[toolExecutionPatchKey];
       }
     });
-  }
+  };
+  registerPatchInstall(installToolExecutionPatch);
 
   const finishCleanGroup = (activity = cleanRun.activity ?? "done") => {
     const activeGroup = activityTimeline.currentGroup();
