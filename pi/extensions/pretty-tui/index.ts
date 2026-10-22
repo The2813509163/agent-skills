@@ -29,7 +29,6 @@ import {
   getAgentDir,
   getMarkdownTheme,
   type ExtensionAPI,
-  type ToolRenderers,
 } from "@earendil-works/pi-coding-agent";
 import {
   type Component,
@@ -4380,13 +4379,13 @@ export default function prettyTui(pi: ExtensionAPI) {
     });
   });
 
-  const nativeDefinitions: Record<string, ToolRenderers> = {
+  const nativeDefinitions = {
     read: createReadToolDefinition(cwd), bash: createBashToolDefinition(cwd),
     edit: createEditToolDefinition(cwd), write: createWriteToolDefinition(cwd),
     grep: createGrepToolDefinition(cwd), find: createFindToolDefinition(cwd), ls: createLsToolDefinition(cwd),
   };
   const registerStyledTool = (definition: any) => {
-    const native = nativeDefinitions[definition.name];
+    const native = nativeDefinitions[definition.name as keyof typeof nativeDefinitions];
     const select = (kind: "renderCall" | "renderResult", args: any[]) => {
       const context = args.at(-1);
       const useNative = renderMode === "full" || renderMode === "compact" && context.expanded;
