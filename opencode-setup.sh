@@ -591,6 +591,7 @@ if [ "$mcc_rc" = 1 ] && [ ! -f "$MC_CFG" ]; then   # 只在模板下载失败时
 {
   "$schema": "https://raw.githubusercontent.com/cortexkit/magic-context/master/assets/magic-context.schema.json",
   "language": "zh",
+  "todowrite": { "enabled": true, "overlay": false },
   "historian": {
     "opencode": {
       "model": "anthropic-newapi/deepseek-flash"

@@ -30,6 +30,7 @@ LOCAL = {
     "nested": {"retry": {"baseDelayMs": 1000, "enabled": False}},
     "packages": ["npm:a", "npm:local-only"],
     "enabledModels": ["m1"],
+    "todowrite": {"overlay": False},
     "CLAUDE_MEM_OPENROUTER_MODEL": "deepseek-flash",
     "CLAUDE_MEM_OPENROUTER_BASE_URL": "https://local.example/v1",
     "CLAUDE_MEM_OPENROUTER_API_KEY": "sk-LOCAL-MEM",
@@ -44,6 +45,7 @@ TEMPLATE = {
     "newKey": "from-template",
     "packages": ["npm:a", "npm:b"],
     "enabledModels": ["m1", "m2"],
+    "todowrite": {"enabled": True, "overlay": False},
     "CLAUDE_MEM_OPENROUTER_MODEL": "deepseek-flash",
     "CLAUDE_MEM_OPENROUTER_BASE_URL": "https://<YOUR_GATEWAY_HOST>/v1",
     "CLAUDE_MEM_OPENROUTER_API_KEY": "<YOUR_API_KEY>",
@@ -66,6 +68,10 @@ EXPECT = [
     ("CLAUDE_MEM_OPENROUTER_MODEL", "deepseek-flash", "template"),
     ("CLAUDE_MEM_OPENROUTER_BASE_URL", "https://local.example/v1", "local"),
     ("CLAUDE_MEM_OPENROUTER_API_KEY", "sk-LOCAL-MEM", "local"),
+    # magic-context 的 todowrite:老机器只有 overlay,模板必须补上 enabled
+    # (enabled 默认 false,不写就没有 todo 工具和 /todos 命令)
+    ("todowrite.enabled", True, "template"),
+    ("todowrite.overlay", False, "template"),
 ]
 
 
@@ -281,6 +287,22 @@ def check_opencode_update_detection():
     print(f"opencode.json: 档位探测检查 {len(cases)} 项")
 
 
+def check_todowrite_takeover(body, tmp):
+    """显式 enabled:false 也要被模板接管:分发套件要求跑完脚本就有 todo 工具。"""
+    engine = tmp / "engine.py"
+    engine.write_text(body, encoding="utf-8")
+    dest, tpl, cand = tmp / "dest.json", tmp / "tpl.json", tmp / "cand.json"
+    dest.write_text(json.dumps({"todowrite": {"enabled": False, "overlay": True}}), encoding="utf-8")
+    tpl.write_text(json.dumps({"todowrite": {"enabled": True, "overlay": False}}), encoding="utf-8")
+    proc = subprocess.run([sys.executable, str(engine), str(dest), str(tpl), str(cand)],
+                          capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if proc.returncode:
+        return [f"todowrite 接管检查: 引擎退出码 {proc.returncode}: {proc.stderr.strip()}"]
+    got = json.loads(cand.read_text(encoding="utf-8"))["todowrite"]
+    want = {"enabled": True, "overlay": False}
+    return [] if got == want else [f"todowrite 接管检查: 得到 {got!r},期望 {want!r}"]
+
+
 def main():
     check_web_migration()
     check_opencode_update_policy()
@@ -295,12 +317,14 @@ def main():
                 failures.append(f"{script}: {path} = {got!r},期望 {want!r}(应保留{side}侧)")
         with tempfile.TemporaryDirectory() as d:
             failures += check_fill(script, fill, pathlib.Path(d))
-        print(f"{script}: 合并检查 {len(EXPECT)} 项 + 占位符填空检查 12 项")
+        with tempfile.TemporaryDirectory() as d:
+            failures += check_todowrite_takeover(body, pathlib.Path(d))
+        print(f"{script}: 合并检查 {len(EXPECT)} 项 + 占位符填空检查 12 项 + todowrite 接管检查")
     if failures:
         print("\n".join(f"FAIL {f}" for f in failures))
         return 1
     print("PASS: 私密键(api key/url/host/*_KEY)保留本机值,claude-mem 模型随模板,本地独有键不丢,列表键走并集,"
-          "5 个 key 各归各处")
+          "todowrite 由模板接管,5 个 key 各归各处")
     return 0
 
 
