@@ -2,10 +2,10 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import layout from "./atelier/extensions/index.js";
 import { installComposer } from "./composer.js";
 import panels from "./panels.js";
+import { installRenderDedupe } from "./render-dedupe.js";
 import tps from "./tps.js";
 import { registerRewindCommand } from "./message-actions.js";
 
-/** Agent Skills UI: one owner for composer, sidebar and footer. */
 /**
  * Agent Skills UI: one owner for composer, sidebar and footer.
  *
@@ -15,6 +15,7 @@ import { registerRewindCommand } from "./message-actions.js";
  */
 export default function (pi: ExtensionAPI) {
   if (process.env.MAGIC_CONTEXT_PI_SUBAGENT === "1") return;
+  installRenderDedupe();
   registerRewindCommand(pi);
   installComposer(pi);
   layout(pi);
