@@ -1250,6 +1250,7 @@ export default function prettyTui(pi: ExtensionAPI) {
     const renderedModeKey = Symbol("pretty-tui.rendered-assistant-mode");
     const renderedExpansionKey = Symbol("pretty-tui.rendered-assistant-expansion");
     const cleanThinkingRenderCacheKey = Symbol("pretty-tui.clean-thinking-render-cache");
+    const cleanNativeFilterKey = Symbol("pretty-tui.clean-native-filtered");
 
     const assistantTerminalUpdate = (message: any): ActivityMember | undefined => {
       if (!assistantTerminalState(message)) return undefined;
@@ -1396,10 +1397,11 @@ export default function prettyTui(pi: ExtensionAPI) {
       // Shared thought presentation owns thinking completely. Removing it from
       // Pi's native content tree also removes the native MouseRegion that would
       // otherwise toggle a second, unrelated `Thinking...` block.
-      const displayMessage =
-        groupedThinking && Array.isArray(message?.content)
-          ? { ...message, content: message.content.filter((item: any) => item.type !== "thinking") }
-          : message;
+      const filtered = groupedThinking && Array.isArray(message?.content);
+      const displayMessage = filtered
+        ? { ...message, content: message.content.filter((item: any) => item.type !== "thinking") }
+        : message;
+      if (filtered) this[cleanNativeFilterKey] = message;
       try {
         originalUpdateContent.call(this, assistantTerminalState(message)
           ? { ...displayMessage, errorMessage: undefined, stopReason: "stop" }
@@ -1408,6 +1410,21 @@ export default function prettyTui(pi: ExtensionAPI) {
         this.hideThinkingBlock = previousHideThinkingBlock;
       }
       this.lastMessage = message;
+    };
+
+    // Pi's native content tree still draws its own collapsed `Thinking...` row.
+    // A container rebuilt outside updateContent (reload, another extension,
+    // click-driven rebuild) would show it beside our summary, so re-filter
+    // before any native render in clean mode.
+    const renderNativeClean = function (this: any, message: any, width: number): string[] {
+      if (eligibleThinking(message) && this[cleanNativeFilterKey] !== message) {
+        originalUpdateContent.call(this, {
+          ...message,
+          content: message.content.filter((item: any) => item.type !== "thinking"),
+        }, this.isStreaming);
+        this[cleanNativeFilterKey] = message;
+      }
+      return originalRender.call(this, width);
     };
 
     const renderAssistantTranscript = function (this: any, width: number): string[] {
@@ -1421,13 +1438,13 @@ export default function prettyTui(pi: ExtensionAPI) {
       if (renderMode !== "clean") return renderPanelAssistant.call(this, width);
       const terminalMember = assistantTerminalUpdate(message);
       if (!eligibleThinking(message)) {
-        if (!terminalMember) return originalRender.call(this, width);
+        if (!terminalMember) return renderNativeClean.call(this, message, width);
         const terminalGroup = activityTimeline.groupForMember(terminalMember.id);
-        if (!terminalGroup) return originalRender.call(this, width);
+        if (!terminalGroup) return renderNativeClean.call(this, message, width);
         activityUpdateComponents.set(terminalMember.id, this);
         return [
           ...renderActivityUpdateProjection(terminalGroup, terminalMember, width, this),
-          ...(visibleAssistantText(message) ? originalRender.call(this, width) : []),
+          ...(visibleAssistantText(message) ? renderNativeClean.call(this, message, width) : []),
         ];
       }
 
@@ -1438,14 +1455,14 @@ export default function prettyTui(pi: ExtensionAPI) {
         // Timeline ownership can be briefly unavailable during transcript
         // rebuilds. Fail open to Pi's filtered native renderer so visible
         // assistant text is never lost.
-        return originalRender.call(this, width);
+        return renderNativeClean.call(this, message, width);
       }
       thinkingComponents.set(key, this);
       if (!activityFallbackThemes.has(group.id)) {
         activityFallbackThemes.set(group.id, defaultActivityTheme());
       }
       const position = activityMemberPosition(group, member);
-      const visibleLines = visibleAssistantText(message) ? originalRender.call(this, width) : [];
+      const visibleLines = visibleAssistantText(message) ? renderNativeClean.call(this, message, width) : [];
       // Native errors are filtered above; append the shared alert exactly once
       // while preserving any partial visible answer outside the thought block.
       const terminalLines = terminalMember
@@ -1568,7 +1585,7 @@ export default function prettyTui(pi: ExtensionAPI) {
       // text selection, and code-block Copy controls keep working.
       let activityHeight: number | undefined;
       if (visibleAssistantText(message)) {
-        const visibleLines = originalRender.call(this, event.width);
+        const visibleLines = renderNativeClean.call(this, message, event.width);
         const renderedLines = patchedRender.call(this, event.width);
         activityHeight = Math.max(0, renderedLines.length - visibleLines.length);
         if (event.y >= activityHeight) {
