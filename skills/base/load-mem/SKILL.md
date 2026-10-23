@@ -57,6 +57,22 @@ These are entry points to **claude-mem**, not separate memory systems. Names bel
 - When the task turns on the project's own vocabulary or domain model, find where that language already lives — the project's handbook, or a `CONTEXT.md` where the project uses one — before inventing names. Loading is not changing: changing the model is `domain-modeling`'s job.
 - Injected Magic Context memories are already available. Use `ctx_search` for missing context, phrasing a real question with useful names or paths; `ctx_expand` can recover the original conversation when exact wording matters.
 - Discover claude-mem tools through the host's catalog rather than assuming worker ports or database schemas. A missing tool or failed call is a capability gap, not proof that no history exists.
-- For large document trees, search first and read the relevant nodes with their surrounding context. Source `.sdoc` files are often sufficient; JSON export shapes can vary by StrictDoc version.
 - Missing layers are normal. Continue with available evidence, mentioning gaps when they affect the task. `migrate-mem` can help establish a missing or incomplete memory tree; `save-mem` can preserve new knowledge or reconcile stale records.
 - Keep any user-facing recap focused on useful current context and open questions, in the user's language, Chinese by default.
+
+## Narrow the tree before reading it
+
+A StrictDoc tree outgrows a single read: one decisions file plus one journal can run past 20k tokens. `.sdoc` is plain text, so grep it instead of loading it whole.
+
+```bash
+# the authoritative set: current decisions with their UID and title
+grep -B1 -A1 '^STATUS: Active' docs/project_memory/decisions.sdoc
+
+# one topic across the whole tree (decisions, journal, handbook)
+grep -rn -i -B2 -A6 '<keyword>' docs/project_memory/
+
+# list journal entries, then read only the one you need
+grep -n '^UID: ' docs/project_memory/journal.sdoc
+```
+
+Then read the matched node and its immediate neighbours. Paths differ per project — find them first (`ls docs/project_memory/`) instead of assuming the layout above. Reading only the matching node keeps the answer and the context window intact; a full-tree read usually buries the answer and costs the session. Source `.sdoc` files are usually sufficient; JSON export shapes can vary by StrictDoc version.
