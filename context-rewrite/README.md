@@ -36,7 +36,9 @@
 
 ## 大输出外置与原文取回
 
-默认：普通工具文本 **≥16 KiB（UTF-8 字节）**时外置；原生已经截断并留有输出文件时也会保存副本。不追溯处理旧结果，不按 token 猜大小。
+默认：普通工具文本 **≥16 KiB（UTF-8 字节）**时外置，`read` 放宽到 **≥48 KiB**；原生已经截断并留有输出文件时也会保存副本。不追溯处理旧结果，不按 token 猜大小。
+
+- skill 豁免：`read` 目标为 `SKILL.md`，或工具名为 `skill` 时，**永远全文内联**，不受阈值和宿主截断的影响。skill 是随包分发的固定说明，体量有限，占位符只会逼出一次多余的取回。
 
 - 占位符：`[context_output]`、SHA-256 id、绝对路径、保存范围、字节数、行数、执行状态、首尾预览。预览不等于全文；不要仅为取回内容重跑命令。
 - 长源码：原生 `read` 触发外置时，保存**外置时完整源文件快照**，不是仅保存宿主返回的 50 KiB 或指定行片段。后续源文件修改不影响这个快照。
@@ -68,6 +70,7 @@
 | 项 | 取值 |
 | --- | --- |
 | `CONTEXT_OUTPUT_BYTES` | 默认 `16384`；`0` 停用新输出自动外置，不影响原文取回 |
+| `CONTEXT_OUTPUT_READ_BYTES` | 默认 `49152`（48 KiB），只管 `read`；`0` 表示 `read` 结果不自动外置 |
 | `CONTEXT_OUTPUT_DIR` | 可指定绝对目录；默认用户数据目录下的 `agent-skills/context-output/` |
 | Linux 默认目录 | `~/.local/share/agent-skills/context-output/`；遵循 `XDG_DATA_HOME` |
 | Windows 默认根 | `LOCALAPPDATA`；未设置时使用用户目录 `.local/share` |

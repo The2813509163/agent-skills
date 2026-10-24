@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, open, readFile, rename, stat, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { classifyKind, extractCommand } from "acp-kernel";
@@ -20,16 +20,20 @@ export const READ_DESCRIPTION = "Retrieve a persistent text snapshot from a [con
 export function outputSettings() {
   const bytes = Number(process.env.CONTEXT_OUTPUT_BYTES ?? 16 * 1024);
   if (!Number.isSafeInteger(bytes) || bytes < 0) throw new Error("CONTEXT_OUTPUT_BYTES 必须为非负整数；0 表示停用自动外置");
+  const readBytes = Number(process.env.CONTEXT_OUTPUT_READ_BYTES ?? 48 * 1024);
+  if (!Number.isSafeInteger(readBytes) || readBytes < 0) throw new Error("CONTEXT_OUTPUT_READ_BYTES 必须为非负整数；0 表示 read 结果不再自动外置");
   const data = process.env.XDG_DATA_HOME ?? (process.platform === "win32" ? process.env.LOCALAPPDATA : undefined) ?? join(homedir(), ".local", "share");
   const directory = process.env.CONTEXT_OUTPUT_DIR ?? join(data, "agent-skills", "context-output");
   if (!isAbsolute(directory)) throw new Error("CONTEXT_OUTPUT_DIR 必须为绝对路径");
-  return { bytes, directory };
+  return { bytes, readBytes, directory };
 }
 
-export function eligibleOutput(tool) {
-  return tool !== READ_TOOL && tool !== "context_rewrite" &&
+// skill 文本是随包分发的固定说明，读进来就该是全文，不转占位符。
+export function eligibleOutput(tool, sourcePath) {
+  return tool !== READ_TOOL && tool !== "context_rewrite" && tool !== "skill" &&
     !/(^|_)(ctx_[a-z_]+|ask_user_question|question|todowrite|todoread)$/.test(tool) &&
-    !tool.includes("claude_mem");
+    !tool.includes("claude_mem") &&
+    basename(sourcePath ?? "") !== "SKILL.md";
 }
 
 function preview(buffer, tail = false) {
@@ -40,8 +44,11 @@ function preview(buffer, tail = false) {
 
 export function createOutputStore(settings = outputSettings()) {
   async function capture(texts, { tool, input, sourcePath, force = false, scope = "tool_result", status = "completed", warning = "" }) {
-    if (!settings.bytes || !eligibleOutput(tool) || !texts.length ||
-        (!force && texts.reduce((n, t) => n + Buffer.byteLength(t), 0) < settings.bytes)) return;
+    let limit = settings.bytes;
+    if (tool === "read") limit = settings.readBytes ?? limit;
+    if (settings.bytes === 0) limit = 0; // 全局停用
+    if (!limit || !eligibleOutput(tool, sourcePath) || !texts.length ||
+        (!force && texts.reduce((n, t) => n + Buffer.byteLength(t), 0) < limit)) return;
     if (sourcePath && !(await stat(sourcePath)).isFile()) throw new Error("外置快照仅支持普通文件");
     await mkdir(settings.directory, { recursive: true, mode: 0o700 });
     const temporary = join(settings.directory, `.writing-${randomUUID()}`);
