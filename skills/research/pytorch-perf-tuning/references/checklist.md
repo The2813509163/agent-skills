@@ -27,7 +27,9 @@ rg -n 'for .* in .*expert|for .* in .*head|for .* in .*layer|for .* in .*segment
 - 日志、assert、tqdm 里的 tensor 取值也算。
 - 先判断在不在热循环；不在热路径的 `.cpu()` 不用管。
 
-## 3. 设备 Event 计时：一对标记包围 100 次
+## 3. 普通Event计时示例：首尾标记包围一批调用
+
+以下是plain微基准起点，默认100次可按任务调整；先复用项目可信计时器。专业dummy覆盖、profiler交叉验证和平台计量按独立领域库处理，不把此示例当唯一验收合同。
 
 ```python
 import statistics
@@ -51,9 +53,9 @@ def bench(fn, backend, warmup=10, repeat=5, iterations=100):
 ```
 
 - `backend=torch.cuda` 或 `torch.npu`，先选择实际设备；当前流上记录事件。多流工作须显式汇合依赖后记录 end。
-- 计时循环内不插 Event、同步、日志或 `.item()`；编译、数据搬运和正确性校验在外面。除以 100 得摊销均值，不是单次延迟分布。
+- 计时循环内不插 Event、同步、日志或 `.item()`；编译、数据搬运和正确性校验在外面。除以`iterations`得批内摊销均值，不是单次延迟分布。
 - 小核的 Event 区间可能含 Python 喂不满队列的空隙；这不是纯 kernel 时长。可把 100 次调用捕获成图，预热后用一对 Event 包围一次 replay，再除以 100。
-- 图捕获、编译不计入稳态；核对图输出仍与参考一致。eager 与 graph 两组分别比较，禁止混算加速比。
+- 图捕获、编译不计入稳态，但保留冷启动完整成本；核对图输出仍与参考一致。eager/plain与graph分别比较，禁止混算加速比。
 - 训练 step 若有权重更新，应准备等价状态再重放，不能直接套固定输入的纯前向模板。
 
 ## 4. 显存模板

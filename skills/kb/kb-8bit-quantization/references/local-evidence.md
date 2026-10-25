@@ -168,3 +168,20 @@ Amax+A1比A0为34得28失、+.3906pp，区间跨零；收益主要在ARC-Easy，
 两个910B2上BF16去重参数约55.77GiB，没有第二份完整BF16备份；grouped buffers共享Linear storage。allocated与reserved要分开，不能把绑定切片重复计内存。
 
 来源：`glm-eval-memory-batch.probe.report.md`、`fast-eval-error-localization.final.report.md`、`hif8-batch8-specialization.report.md`、`hif8-precision-fast-eval.report.md`、最终联合group报告。
+
+## 8. 2026-10-25 INT8回流观察（待复核）
+
+来源：服务器`skills-upgrade-20261025T162521Z.tar.gz`中的`kb-8bit-quantization/SKILL.md`，SHA256 `90e61c65e9cc0da93e36be8c24f2a9879fbf6d14b52fb207e4e6bd8e4e275e7f`。独立领域库`kernel-knowledge`的`sources/local-skills/kb-8bit-quantization/SKILL.md`也保存该快照；两份相同叙述不是独立复现。
+
+以下仅保留可追查的观察，**不并入前述GLM-4.7-Flash伪量化比较组或结果CSV**。本次回流未取得这些数字对应的完整结果、输入、SDK与计时合同，不能复算或作新项目保证。
+
+| 原记录 | 尚缺条件／允许的用途 |
+|---|---|
+| GLM-4-32B，INT8的α=1：截断率6–31%，单层NMSE 0.11–0.57、整模logits NMSE 1.21 | 缺样本、层、误差定义与原始结果；提示检查真实激活截断，不视为总体范围 |
+| 原生Amax端到端1.135×，σ路径0.934×；动态Amax比自研统计＋量化便宜约6倍 | 缺同输入基线、计时范围、冷/热态与实现版本；只作后续对照线索 |
+| 修正项FP32相加、换反量化权重行和、不修正、零中心时NMSE一致 | 缺逐组数据，不能据此普遍排除中心修正错误 |
+| `npu_quant_matmul` / aclnnQuantMatmulV5的第二操作数末维上限65535，词表N=151552触发 | 按当前API版本核查；不与Triton启动grid/coreDim限制混为一谈。确实超限再考虑BF16或分块并重验 |
+
+可直接采用的判断：INT8固定范围可能截断；共用量化公式的单层对照只能检验实现自洽；需要原精度对照和真实输入。原记录的“α≥4起”不是安全保证；HiF8与E4M3不是同一格式，浮点也不能免除范围检查。
+
+拿到对应报告/结果后，补齐条件、复算并更新此节状态；不要把待复核数字静默升级为已验结论，也不要因缺附件抹去有价值的负面线索。

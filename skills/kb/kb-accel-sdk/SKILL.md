@@ -5,7 +5,7 @@ description: 公共知识库：各大加速计算平台（CUDA/MUSA/Ascend CANN/
 
 # 加速平台 SDK 与生态知识库
 
-> 知识类 skill：内容为跨平台公共知识（调研日期 2026-09-27；Ascend 节 2026-09-28 经 910B2 实机初始化验证刷新，易过期条目附重查入口）。本机特有事实不写这里（宿主机层管）。**结论与实机冲突时以实机为准，并回流更新本库。**
+> 知识类 skill：内容为跨平台公共知识（调研日期 2026-09-27；Ascend 基础栈 2026-09-28 经 910B2 实机验证，2026-10-23～24 安装经验于 2026-10-25 回流，易过期条目附重查入口）。本机特有事实不写这里（宿主机层管）。**结论与实机冲突时以实机为准，并回流更新本库。**
 
 ## 平台总览
 
@@ -60,7 +60,8 @@ description: 公共知识库：各大加速计算平台（CUDA/MUSA/Ascend CANN/
 - torch_npu 使用面（已验证）：`torch.npu.*` 镜像 CUDA API；autocast `device_type="npu"`；transformers `device_map="auto"` 可跨多 NPU 分层；HCCL 单/双进程 all_reduce 精确。910B2 每卡 HBM 按 61GB 规划（系统保留 ~3.4GB）。
 - transformers 双向钉死冲突：vllm-ascend 钉 transformers（0.23.x↔5.5.4），模型 remote code 又常钉旧版（openPangu↔4.53.2，5.x 上 LossKwargs/rope 键名两处断）：解法选型＝该模型单独小环境，或走 vllm（不依赖 transformers remote code）；别在主环境逐符号打补丁（打不完）。
 - 症状速查：`ERR99999 UNKNOWN application exception` 是昇腾异常收尾行，真因在其上方 traceback；`NPUCachingAllocator ... 32 padding size` warning 无害别修。
-- tilelang-ascend：CANN ≥ 8.3.RC1、torch_npu ≥ 2.6.0；wheel 从 GitHub Releases 按 CANN/Python/架构匹配下载。
+- tilelang-ascend：从官方Releases按具体版本匹配CANN、Python ABI、架构与系统依赖，不能只靠最低版本判断兼容。已验组合、`ascendc_pto`/`npuir`分支、专用源错元数据、torch依赖漂移及bisheng缺C++头问题，见[Ascend安装经验](references/ascend-install-notes.md)。
+- 本库维护SDK/生态导航；算子语法、计量与优化证据由独立`kernel-knowledge`维护，按需自行安装。`tilelang-ascend`等领域skill不随本套件分发，入口与缺失处理见已安装`kernel-worker/references/kernel-knowledge.md`或领域仓库`INSTALL.md`。
 - 硬件差异（写 kernel 必踩）：AI Core 分 Cube/Vector；每核 UB 仅 192KB（BLOCK_SIZE 大了溢出）；**越界访问无容错，直接 Device Hang——mask 必须严格**。
 - 官方自有推理引擎 MindIE 与 vllm-ascend 并存，选型看场景（MindIE 商用闭源、vllm-ascend 社区开源）。
 

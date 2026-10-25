@@ -1,6 +1,19 @@
 # agent-skills
 
-个人 agent 环境分发源：三层记忆（Magic Context + StrictDoc + claude-mem）、任务工作流、前端品味。一条命令安装 skills、配置插件。
+研究团队的 Agent 工作底座：共同质量底线、推荐流程与可复现配置，连接按需使用的专业能力。一条命令安装 skills、配置插件；宿主、模型、个人体验与专业组件允许选择。
+
+## 定位与维护边界
+
+| 内容 | 本套件负责 | 不代替 |
+|---|---|---|
+| 协作方法 | 任务范围、证据、交接、记忆使用与经验回流 | 各项目的科学选择与实际验收 |
+| 环境与工具 | 自有插件、适配、推荐配置及安装保护 | 外部项目的核心开发和发布 |
+| `kb-*`知识 | 带条件的经验、参考、反例；支持跨项目判断 | 完整领域能力或新场景的实测 |
+| 独立领域项目 | 发现入口、适用条件、任务交接与缺失处理 | 接管正文、工具、案例与技术更正 |
+
+统一的是协作与证据底线，不是所有人的整套环境。`base/research/accel/kb`继续表达安装选择与更新策略；当前默认配置是推荐组合，不等于每项个人偏好都是团队规范。
+
+知识可以通过skill交付；独立与否取决于使用者、共同演化的内容和发布责任，不按深浅或文件数划线。成熟领域自行发展，主体引用；实际复用出现反复的检索/冲突/发布困难时再补设施，不预建通用知识平台。
 
 | 宿主 | 定位 |
 |---|---|
@@ -115,10 +128,10 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-ski
 
 | Skill | 用途 |
 |---|---|
-| [`distill-project-kb`](skills/base/distill-project-kb/SKILL.md) | 从项目证据筛选方法、实测、配置与踩坑；给建议、让用户补漏确认，再制作可迁移知识库 |
+| [`distill-project-kb`](skills/base/distill-project-kb/SKILL.md) | 从项目证据筛选可迁移内容；更新kb-*或交付独立领域库，复用已完成的领域选材与验收 |
 | [`writing-skill`](skills/base/writing-skill/SKILL.md) | 通用 skill 编写与组织；项目经验成库先联动 `distill-project-kb`，不重复筛选确认 |
 
-知识库可保留带条件的案例、阴性结果和一次昂贵踩坑；模型/硬件/版本是适用条件，个人路径、凭据和运行状态留在项目记录。
+知识库可保留带条件的案例、阴性结果和一次昂贵踩坑；模型/硬件/版本是适用条件，个人路径、凭据和运行状态留在项目记录。使用后的补条件、反例和更正回到唯一维护源，不要求每次贡献都新建skill；历史快照与安装副本不独立演化。
 
 ### 任务工作流（自制）
 
@@ -163,7 +176,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-ski
 | `exp-batch` | 一条有界分支或已确定的矩阵阶段 | 整批预检环境/资源、代码就绪与成本；按项目惯例运行并落指标 |
 | `exp-probe` | 补数据点、失败重跑、sanity check、最小复现 | 一次聚焦检查；负结果也记录，不把代理结果外推成整模结论 |
 | `pytorch-perf-tuning` | PyTorch 评测慢、设备利用率低、显存浪费、批量预研 | 按证据处理同步、去重、batch、融合、多卡；正确且够用即收口 |
-| `kernel-worker` | 委派有界的 PyTorch 热点 kernel 适配/优化 | 独立工作区与单一写入者；固定参考、数值契约和 Event100 证据；Atrex 为可选外部能力 |
+| `kernel-worker` | 有界算子任务的薄委派入口 | 真实负载、数值/计量契约、资源隔离与结果交接；专业能力按需引用独立kernel-knowledge |
 
 ### 公共知识（kb 组）
 
@@ -188,7 +201,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-ski
 | 记忆 skill | Magic Context、claude-mem、`docs/` StrictDoc；缺一层仍可用其余层 |
 | 工作流 / 技术写作 | 无硬依赖 |
 | personal-ui-taste | 四个外部设计 skill；默认安装，按任务读取，缺失时说明降级 |
-| research skill | PyTorch、实验执行和性能方法；Atrex 仅在目标环境已就绪时按需使用 |
+| research skill | PyTorch与实验执行方法；kernel-knowledge按需自行安装/阅读，Atrex等引擎仅在目标环境已就绪时使用 |
 
 - `.sdoc` 校验需要 `strictdoc`：脚本末尾检查 `uv`，缺则安装；可选全局安装 `uv tool install strictdoc==0.28.1`，升级用 `uv tool upgrade strictdoc`
 - 项目接入记忆系统：使用 [AGENTS.tail.md](AGENTS.tail.md) 中 `memory-system:start/end` 引导块
@@ -205,6 +218,18 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-ski
 - **归属**：本仓维护工作流、个人偏好与验证过的适配经验；外部维护完整目录、配方、脚本与资源。新增能力先考虑引用依赖，重复验证后再提炼差异，不逐版拷贝上游。
 - **更新**：第三方副本由上游管理，直接修改可能被覆盖；个人改动回到本仓 skill。同名本地/其他源不自动接管，保留并告警。
 - **使用**：安装后按任务读取实际入口/参考；安装 skill 不自动装浏览器/Python 包/GSAP，也不启用上游 hooks。分工和缺失处理见 [外部设计能力](skills/base/personal-ui-taste/references/external-skills.md)。
+
+### 独立领域资源：kernel-knowledge
+
+[kernel-knowledge](https://git.nju.edu.cn/iscl/kernel-knowledge)维护算子工程、硬件/DSL、profiling、计量工具、优化机制与条件化证据。仓库访问权限由该项目提供；不是本套件内置内容。
+
+- **按需自行安装**：按其`INSTALL.md`使用`tools/install_skills.py`，或直接读`INDEX.md`与目标skill；不随setup补装，不登记为本套件代管更新项。
+- **主体交接**：`pytorch-perf-tuning`选热点并接回整模，`kernel-worker`负责契约/隔离/预算/交付；专业规则在领域库维护。入口与降级见[领域库接入](skills/research/kernel-worker/references/kernel-knowledge.md)。
+- **缺失不假装可用**：可继续使用项目已有可信实现和工具；依赖缺失的专业能力时说明阻塞，不自动搭平台。
+- **回流到源**：写入前读取领域库`AGENTS.md`、`ADMISSION.md`与发布规范。安装副本先比较并回流，撤回/改名按上游处理；主体只更新交接方法与必要摘要。
+- **不重复维护**：库内平台、案例和工具共同演化；`kb-accel-sdk`保留生态导航，`kb-8bit-quantization`保留量化判断，二者不复制领域库的专业实现。
+
+只引用、可选集成、代装依赖是不同关系。当前`skills-external.sh`还会更新锁表中的符合条件第三方；不能仅凭“本套件未首装”推断不会代更新，独立领域资源遵循自己的安装通道。
 
 ## 首次部署：只需要网关 + 5 个 key
 

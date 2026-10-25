@@ -19,7 +19,7 @@ bash skills-sync.sh base kb
 ## 包含内容
 
 - `SKILL.md`：触发条件与使用顺序
-- `references/`：格式与轴、配方搜索、误差诊断、本地数值、外部证据摘要，以及两份原文
+- `references/`：格式与轴、配方搜索、尺度代理协议、误差诊断、本地数值、外部证据摘要，以及两份原文；待复核回流单列，不混入已验比较组
 - `assets/local-results.csv`：96 行本地逐配置/逐任务结果，比较组分开；分数为 %，drop 为 BF16−候选的 pp
 - `assets/glm-hif8-sq-group128.yaml`：最终已验数值配方实例；是知识记录，不是任意引擎可直接执行的配置
 - `assets/recipe-record.yaml`：新项目记录模板
