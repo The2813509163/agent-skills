@@ -54,6 +54,8 @@
 
 ## 已确认记录
 
+> 以下条目是**历史证据**，不是现行规范。旧条目里的数值、材质写法与拨盘基线可能已被后续版本取代；冲突时以 [preferences.md](references/preferences.md)（规则）、[material.md](references/material.md)（材质）与 [motion.md](references/motion.md)（交互）为准。保留日志是为了说明“为什么变成现在这样”与跨机器合并，不用于拄写法。
+
 ### 2026-09-13 · 跨页面个人品味基线 · v1.0.0
 
 - 状态：Confirmed。

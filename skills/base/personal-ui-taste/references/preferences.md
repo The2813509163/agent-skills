@@ -76,7 +76,8 @@
 
 | 项目 | 起点 | 调整原则 |
 | --- | --- | --- |
-| 字体 | 明确中英文字体配对：沿用项目字体或选择主题字体；数字用 tabular-nums | Inter 不覆盖中文；字体交付与字重按 visual-craft.md 选用 |
+| 字体 | 产品界面优先系统字体栈 `-apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, "PingFang SC", "Noto Sans SC"`；数字 tabular-nums | Inter 不覆盖中文；需要一致渲染时才自托管，字体交付与字重按 visual-craft.md |
+| 标题字距 | ≥20px 的标题与指标数字用 `-0.02em` 至 `-0.032em`，字重 600 | 小字号不加负字距；不用 800 冒充高级 |
 | 表面 | canvas `#f7f8fa`；panel `#fff`；control `#f3f4f6` | 层次来自轻微灰阶差别，不给每格套框 |
 | 文本 | primary `#252b35`；secondary `#626c7b` | 辅助文字仍需可读；不要用低对比制造"高级感" |
 | 边界/强调 | 使用所选主题的边界、主操作、hover、选中与焦点 tokens | 中性主题可用深灰主操作；亮蓝按主题采用，状态色只承载状态 |
