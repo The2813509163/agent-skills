@@ -86,7 +86,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-ski
 
 ## Skills（本仓 33 个）
 
-基础 17 个；算法研究 7 个；算力模板 7 个与公共知识 2 个按需选装。`research` 与 `kb` 随仓库刷新，`accel` 缺才装；另有四个设计依赖直接来自上游仓库，不复制到本仓。
+基础 17 个；算法研究 7 个；算力模板 7 个与公共知识 2 个按需选装。`research` 与 `kb` 随仓库刷新，`accel` 缺才装；另有三个设计依赖来自上游仓库（装时装前询问，默认 Y），不复制到本仓。
 
 ### 工程技能
 
@@ -212,7 +212,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-ski
 |---|---|---|
 | [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) | `ui-ux-pro-max` | 页面结构、产品模式、UX、图表、动效与风格检索 |
 | [alchaincyf/huashu-design](https://github.com/alchaincyf/huashu-design) | `huashu-design` | 高保真、构图/叙事、动画与视觉 QA |
-| [Leonxlnx/taste-skill](https://github.com/Leonxlnx/taste-skill) | `design-taste-frontend`、`redesign-existing-projects` | 新页面视觉方法、已有页面改造审查 |
+| [Leonxlnx/taste-skill](https://github.com/Leonxlnx/taste-skill) | `design-taste-frontend` | 新页面视觉方法、已有页面改造审查（上游已合并 `redesign-existing-projects`） |
 
 - **分发**：三个 setup → [skills-sync.sh](skills-sync.sh) → [skills-external.sh](skills-external.sh)。精确名字补缺，再由 `npx skills@latest update -g <第三方名字>` 更新；不使用整库 `--all`，不把本仓条目交给 npx。
 - **归属**：本仓维护工作流、个人偏好与验证过的适配经验；外部维护完整目录、配方、脚本与资源。新增能力先考虑引用依赖，重复验证后再提炼差异，不逐版拷贝上游。
@@ -925,7 +925,7 @@ npm 缺失包在 OpenCode 启动时自动安装；已有包不会因重启自动
 
 客户端不分组：实体直落 `~/.agents/skills/<名>`，装了 Claude Code 的机器同步 `~/.claude/skills/<名>`（有差异才写）。选组只决定本次安装／更新；不选不会卸载已安装的 skill。
 
-第三方由共用同步器末尾的 `skills-external.sh` 处理：默认补装四个设计依赖，再按锁表更新已登记第三方（包括用户另装的 drawio/find-skills 等）。同时排除本仓来源与当前 `skills/{base,research,accel,kb}` 下的名字，避免旧锁表把本仓 skill 误认成第三方。
+第三方由共用同步器末尾的 `skills-external.sh` 处理：先询问是否安装三个设计依赖（默认 Y；`--uninstall` 清理，`SKILLS_EXTERNAL=skip` 跳过），再按锁表更新已登记第三方（包括用户另装的 drawio/find-skills 等）。同时排除本仓来源与当前 `skills/{base,research,accel,kb}` 下的名字，避免旧锁表把本仓 skill 误认成第三方。
 
 ```bash
 bash skills-external.sh   # 在克隆的套件根单独补装/更新第三方，不动本仓 skill 或插件配置

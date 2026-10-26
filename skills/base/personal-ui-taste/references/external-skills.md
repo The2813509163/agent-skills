@@ -8,8 +8,7 @@
 | --- | --- | --- | --- |
 | [UI/UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) | `ui-ux-pro-max` | 缺产品结构/UX/图表/动效依据，或新建视觉体系 | 读其 SKILL.md，再按问题检索 product/landing/ux/chart/gsap/技术栈；核对结果的语义适配 |
 | [Huashu Design](https://github.com/alchaincyf/huashu-design) | `huashu-design` | 高保真原型、章节叙事、PPT、复杂动画或视觉 QA | 读其入口与需要的构图/动画/critique 参考，使用原版配方和工具；生产工程约束仍由项目决定 |
-| [Taste Skill](https://github.com/Leonxlnx/taste-skill) | `design-taste-frontend` | 新产品页、作品页、解释页需要立意、构图与更好的视觉表达 | 读其当前设计方法，结合内容推断；不照搬落地页字体禁令、滚动劫持或不适用的框架要求 |
-| 同上 | `redesign-existing-projects` | 审查/改造已有页面，或用户指出不直观、不好看、AI 味 | 先读实现与真实页面，按其审查方法定位高收益改动，再由当前范围与个人反馈排序 |
+| [Taste Skill](https://github.com/Leonxlnx/taste-skill) | `design-taste-frontend` | 新产品页、作品页、解释页需要立意、构图与更好的视觉表达；也用于审查/改造已有页面 | 读其当前设计方法，结合内容推断；不照搬落地页字体禁令、滚动劫持或不适用的框架要求 |
 
 小修明确时只读取相关条目；整页需要时可组合一位设计方法源与一位审查方法源，不要求每次全部遍历。不为读取 skill 自动启动子 Agent、改变执行工作流或复制第三方目录进项目。
 
@@ -23,15 +22,24 @@
 
 ## 安装与路径
 
-三个 setup 的共用同步器默认补装这四个 skill，随后用 `npx skills update` 更新已登记第三方；精确名单与命令在仓库根 `skills-external.sh`。
+三个 setup 的共用同步器会询问是否安装这三个设计依赖（默认 Y）；拒绝后本机不装，personal-ui-taste 降级为内置方法。随后用 `npx skills update` 更新已登记第三方；精确名单与命令在仓库根 `skills-external.sh`。
+
+```bash
+bash skills-external.sh            # 询问后安装/更新
+bash skills-external.sh --yes      # 免询问（自动化）
+bash skills-external.sh --uninstall  # 清理这批外部依赖，不动其他第三方
+SKILLS_EXTERNAL=skip bash skills-external.sh  # 显式跳过一次
+```
 
 单独安装也可使用：
 
 ```bash
 npx -y skills@latest add nextlevelbuilder/ui-ux-pro-max-skill --skill ui-ux-pro-max -g -y --agent pi
 npx -y skills@latest add alchaincyf/huashu-design --skill huashu-design -g -y --agent pi
-npx -y skills@latest add Leonxlnx/taste-skill --skill design-taste-frontend redesign-existing-projects -g -y --agent pi
+npx -y skills@latest add Leonxlnx/taste-skill --skill design-taste-frontend -g -y --agent pi
 ```
+
+**只装这三个，不装变体。** 上游把 `redesign-existing-projects` 并入 `design-taste-frontend`；`taste-skill-classics` 里的 `high-end-visual-design`、`minimalist-ui`、`industrial-brutalist-ui`、`-v1`、`-v2-experimental` 等是同一方法的旧版与兄弟风格，全部标为 `opt-in`（只有人工点名才运行）。需要某个具体气质时按名字临时装、用完 `--uninstall` 或单独删，不默认排队在路由表里。
 
 这里 `--agent pi` 使用 CLI 的全局共享目录 `~/.agents/skills/`；不要求安装 Pi 本体。Pi/OpenCode/Codex 通过各自扫描机制读取该目录；装了 Claude Code 时套件也添加其入口。重开会话刷新 skill 发现。
 
@@ -39,6 +47,7 @@ npx -y skills@latest add Leonxlnx/taste-skill --skill design-taste-frontend rede
 - **技能不等于执行环境**：安装不会替你配置浏览器、Python 包、GSAP 或 hooks。用外部脚本前读其依赖和副作用；按任务补件，不为了获得文字参考运行上游安装器。
 - **缺失/失效**：说明具体缺项，给上面的精确安装命令；有安装授权时补装，否则使用可用方法并标明降级。没有读到不冒称已调用，脚本不可用不冒称已验收。
 - **更新与冲突**：第三方副本由上游管理，update 可覆盖直接修改。个人偏好保存在本 skill；同名本地/其他源、Claude 中有差异的同名副本保留并告警，逐个处理不连带阻止其他依赖。
+- **用完可删**：这批依赖只为设计任务服务。项目收口后不需要它们时，跑 `bash skills-external.sh --uninstall`（会同步清 `~/.agents/skills`、`~/.claude/skills` 镜像与 `.skill-lock.json` 条目；不碰其他第三方）。别手动 `rm -rf`——会留下孤儿 lock 条目，下次自动补装。
 - **更新确认**：沿用 CLI 原始输出；skills@1.7.1 的部分网络检查失败仍退出 0，遇到检查错误重跑，不能只凭退出码声称全部最新。
 
 复制 personal-ui-taste 到另一台机器只迁移我们的记录；外部依赖在目标机重新安装，不连带复制整份上游资源库。

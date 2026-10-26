@@ -2,8 +2,8 @@
 name: personal-ui-taste
 description: "个人 UI 设计伙伴：从内容与任务推导布局、叙事、交互和动效，主动推荐比现有模板更好的形式，并以有范围的用户偏好校准。Use when designing, building, polishing or reviewing this user's frontend UI, dashboards, charts, forms, admin panels, reports or product pages; following 我的品味/个人审美, asking 做得更好看/更直观/去AI味, or exploring layouts, visual storytelling and motion. Not for backend-only work."
 metadata:
-  version: "4.0.0"
-  updated: "2026-10-26"
+  version: "4.1.0"
+  updated: "2026-10-27"
 ---
 
 # Personal UI Taste · 主动设计，不只执行旧模板
@@ -35,7 +35,7 @@ metadata:
 - 已确认反馈与症状索引见 [preferences.md](references/preferences.md)。T01–T18 保留；工作台密度、曲线选择、42px 导航等不推广到所有页面。T15 要求主动引导；T16–T18 定下材质、交互密度与苹果式排版的基线；标为“已陈旧”的方向不得再当默认答案。
 - 本地主题与 [四种工作骨架](assets/ui-lab/structures.html) 是**参考样本，不是风格白名单或结构全集**。可以提出库外方向、组合形式或原创构图；新方案未获反馈时记 Candidate。
 - 品牌/设计系统保持可辨与一致，**不等于每页每块都同一布局**。已指定 shadcn/米色，也可以主动改内容组织；不要为了探索擅自换掉已满意的导航。
-- **先选专业入口再设计**：新展示页读 `design-taste-frontend`，已有页审查/整页改造读 `redesign-existing-projects`；缺结构/UX/图表依据用 `ui-ux-pro-max`，高保真/叙事/复杂动画或视觉 QA 用 `huashu-design`。先读取所选外部 skill 的实际入口，再沿它的参考/脚本继续，不只引用名字。
+- **先选专业入口再设计**：新展示页与已有页审查/改造都读 `design-taste-frontend`（上游已把 `redesign-existing-projects` 并入其中，它本来就会先在真实浏览器里审已有页）；缺结构/UX/图表依据用 `ui-ux-pro-max`，高保真/叙事/复杂动画或视觉 QA 用 `huashu-design`。先读取所选外部 skill 的实际入口，再沿它的参考/脚本继续，不只引用名字。
 - [外部设计能力](references/external-skills.md) 给出安装、触发与组合分工；本 skill 负责个人校准，不维护上游目录/工具的内置副本。小修只读相关条目，不为调用 skill 遍历全部库；新建/整页方法按需看 [设计哲学](references/design-philosophy.md) 和 [形式菜单](references/style-menu.md)。
 - 已有实现先读源码与真实呈现；外部参考可联网查，未访问不声称已调研。不要把“尚未目验”写成“不能尝试”。
 

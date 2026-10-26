@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# 三套 setup 经 skills-sync.sh 调用；也可单跑，只补装设计依赖并更新已登记第三方。
+# 三套 setup 经 skills-sync.sh 调用；也可单跑。
+# 补装三个设计依赖并更新已登记第三方；--uninstall 反安装；--yes 免询问。
 # 第三方副本由上游管理；个人改动放回本仓 skill。同名本地/其他源保留并告警。
 set -euo pipefail
 command -v npx >/dev/null 2>&1 && command -v node >/dev/null 2>&1 || {
@@ -10,6 +11,61 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 agents=(pi)
 [ ! -d "$HOME/.claude" ] || agents+=(claude-code)
 status=0
+
+# 设计依赖：只这三个。redesign-existing-projects 已并入 design-taste-frontend，不再安装。
+DESIGN_SKILLS="ui-ux-pro-max huashu-design design-taste-frontend"
+
+ASSUME_YES=0; UNINSTALL=0
+for arg in "$@"; do
+  case "$arg" in
+    -y|--yes) ASSUME_YES=1 ;;
+    --uninstall) UNINSTALL=1 ;;
+  esac
+done
+
+uninstall_design_skills() {
+  node - "$HOME" <<'JS'
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
+const home = process.argv[2];
+const names = ['ui-ux-pro-max', 'huashu-design', 'design-taste-frontend', 'redesign-existing-projects'];
+const lockPath = path.join(home, '.agents', '.skill-lock.json');
+const lock = fs.existsSync(lockPath) ? JSON.parse(fs.readFileSync(lockPath, 'utf8')) : {};
+const skills = lock.skills || {};
+let removed = 0;
+for (const name of names) {
+  let hit = false;
+  for (const dir of [path.join(home, '.agents', 'skills', name), path.join(home, '.claude', 'skills', name)]) {
+    if (fs.existsSync(dir)) { fs.rmSync(dir, { recursive: true, force: true }); hit = true; }
+  }
+  if (skills[name]) { delete skills[name]; hit = true; }
+  if (hit) { console.log('removed: ' + name); removed++; }
+}
+if (removed && lock.skills) { lock.skills = skills; fs.writeFileSync(lockPath, JSON.stringify(lock, null, 2) + '\n'); }
+if (!removed) console.log('nothing to remove');
+JS
+}
+
+if [ "$UNINSTALL" = 1 ]; then
+  uninstall_design_skills
+  echo "外部设计依赖已清理；personal-ui-taste 降级为内置方法。重装：bash $ROOT/skills-external.sh --yes"
+  exit 0
+fi
+
+# 非交互（管道、CI）默认安装，保持原行为；SKILLS_EXTERNAL=0 可显式跳过。
+if [ "${SKILLS_EXTERNAL:-install}" = skip ]; then
+  echo "SKILLS_EXTERNAL=skip：跳过外部设计依赖"
+  exit 0
+fi
+if [ "$ASSUME_YES" = 0 ] && [ -t 0 ]; then
+  printf '外部设计依赖（3 个）：%s\n' "$DESIGN_SKILLS"
+  printf 'personal-ui-taste 按需引用；不装则降级为内置方法。安装/更新？[Y/n] '
+  read -r ans || ans=y
+  case "${ans:-y}" in
+    [Nn]*) echo "已跳过；稍后安装：bash $ROOT/skills-external.sh"; exit 0 ;;
+  esac
+fi
 
 claude_safe() {
   local canonical="$HOME/.agents/skills/$1" mirror="$HOME/.claude/skills/$1"
@@ -49,7 +105,6 @@ JS
 ensure_skill nextlevelbuilder/ui-ux-pro-max-skill ui-ux-pro-max
 ensure_skill alchaincyf/huashu-design huashu-design
 ensure_skill Leonxlnx/taste-skill design-taste-frontend
-ensure_skill Leonxlnx/taste-skill redesign-existing-projects
 
 third=$(node - "$ROOT" <<'JS'
 const fs = require('node:fs');
@@ -65,11 +120,12 @@ for (const group of ['base', 'research', 'accel', 'kb']) {
 const expected = {
   'ui-ux-pro-max': 'nextlevelbuilder/ui-ux-pro-max-skill',
   'huashu-design': 'alchaincyf/huashu-design',
-  'design-taste-frontend': 'Leonxlnx/taste-skill',
-  'redesign-existing-projects': 'Leonxlnx/taste-skill'
+  'design-taste-frontend': 'Leonxlnx/taste-skill'
 };
+// 上游已把它并入 design-taste-frontend；旧机器上的残留目录不进入更新列表。
+const obsolete = new Set(['redesign-existing-projects']);
 console.log(Object.entries(skills).filter(([name, e]) =>
-  !own.has(name) && !(e.source || '').includes(mine) && !(e.sourceUrl || '').includes(mine) &&
+  !own.has(name) && !obsolete.has(name) && !(e.source || '').includes(mine) && !(e.sourceUrl || '').includes(mine) &&
   (!expected[name] || e.source === expected[name])
 ).map(([name]) => name).join(' '));
 JS

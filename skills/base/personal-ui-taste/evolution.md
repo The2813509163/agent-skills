@@ -56,6 +56,16 @@
 
 > 以下条目是**历史证据**，不是现行规范。旧条目里的数值、材质写法与拨盘基线可能已被后续版本取代；冲突时以 [preferences.md](references/preferences.md)（规则）、[material.md](references/material.md)（材质）与 [motion.md](references/motion.md)（交互）为准。保留日志是为了说明“为什么变成现在这样”与跨机器合并，不用于拄写法。
 
+### 2026-10-27 · 外部设计依赖收细到三个，改为询问式安装 · v4.1.0
+
+- 状态：Confirmed（用户定下口径“我们负责做好自己的，外部资源不过分维护，直接给安装选项，skill 里引用”）
+- 证据（实测，非推测）：`Leonxlnx/taste-skill` 上游现在只含一个 skill `design-taste-frontend`（542 行）；README 的 Moved skills 明写 `redesign-existing-projects` 已被它吸收（“audits an existing page in a real browser”）。我们却仍在 `skills-external.sh` 里装这个名字——一直在静默失败（`npx` 报错、`status=1` 后流程继续），而 SKILL.md、external-skills.md、根 README 都在把 agent 路由到一个不存在的 skill
+- 变化：`skills-external.sh` 删掉 `redesign-existing-projects` 的安装与锁表条目，并把它列入 obsolete（旧机器上的残留目录不进更新列表）；路由改成“新页与已有页审查都用 design-taste-frontend”
+- 安装策略：三个设计依赖改为**询问式**（默认 Y，`--yes` 免询问，`SKILLS_EXTERNAL=skip` 跳一次，无 TTY 时默认安装保持原行为）；新增 `--uninstall`，同步清 `~/.agents/skills`、`~/.claude/skills` 镜像与 `.skill-lock.json` 条目，不碰其他第三方
+- 为什么不装 classics：`taste-skill-classics` 里的 `high-end-visual-design`、`minimalist-ui`、`industrial-brutalist-ui`、`-v1`、`-v2-experimental` 实测全部声明 `opt-in: it runs only when called by name`（`disable-model-invocation`），装进来也不会被自动选中；它们是同一方法的旧版与兄弟风格，不是“脚手架+组件库”式的互补能力。用户当前目标是“寻常好看优雅简洁”，正是 design-taste-frontend 的默认定位
+- “用完手删省上下文”的修法：常驻成本其实是索引里的 description（`design-taste-frontend` ≈242 tokens、`huashu-design` ≈80），真正贵的是误读一个不该读的 SKILL.md；所以做法是**把路由判决写准 + 给一条幂等的卸载命令**，而不是鼓励 `rm -rf`（会留下孤儿 lock 条目，下次自动补装）
+- 边界：不引入 classics/imagegen-skills 变体；不改第三方正文；降级路径（不装这三个）仍需能靠内置 material/motion/风格菜单完成寻常设计
+
 ### 2026-09-13 · 跨页面个人品味基线 · v1.0.0
 
 - 状态：Confirmed。

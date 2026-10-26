@@ -98,5 +98,5 @@ for g in $SYNC_GROUPS; do
 done
 
 echo "== 本仓 skills 同步完成:装 $N_INST,更新 $N_UPD,保留 $N_KEEP,未变 $N_SAME =="
-echo "== 外部 skills:补装设计依赖，更新已登记第三方(不含本仓) =="
+echo "== 外部 skills:设计依赖(询问后安装) + 更新已登记第三方(不含本仓) =="
 bash "$cache/agent-skills-main/skills-external.sh"
