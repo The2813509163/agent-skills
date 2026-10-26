@@ -2,6 +2,8 @@
 
 可迁移、持续演化的 UI 设计伙伴：从内容推导结构、叙事与动效，主动提出更直观、更好看的形式，用有范围的个人反馈校准。旧样板是参考，不是设计上限。
 
+v4.0（2026-10-26）基线：界面要**现代、有交互、有材质**——完整状态、短转场、半像素环与锃亮主操作；一批旧方向（奶油米色 + 陶土、bento 当苹果风、满页玻璃、紫渐变）已标为陈旧。
+
 ## 安装与调用
 
 推荐重跑套件 setup：同步本 skill，并安装/更新四个外部设计依赖。只手工复制本目录时，还需按文末安装依赖；入口必须是：
@@ -48,26 +50,28 @@ scp -r ~/.agents/skills/personal-ui-taste USER@HOST:~/.agents/skills/
 
 ## 文件
 
-- [assets/ui-lab/index.html](assets/ui-lab/index.html)：直接打开的离线实验室，默认 shadcn-neutral；八套主题与两个对照，可交互比较。
+- [assets/ui-lab/index.html](assets/ui-lab/index.html)：直接打开的离线实验室，默认 shadcn-neutral；九套主题与两个对照，可交互比较，切到 **Cupertino** 看锃亮主操作与磨砂浮层。
 - [assets/ui-lab/structures.html](assets/ui-lab/structures.html)：四种工作型骨架样本，可叠加切主题；不是结构全集。
 - [assets/ui-lab/design-exploration.html](assets/ui-lab/design-exploration.html)：内容驱动的构图与动效候选——非对称开篇、同对象重排、滚动章节、原生详情；中性/米色可对比。
 - [assets/ui-lab/README.md](assets/ui-lab/README.md)：组件 → CSS/JS 索引、token 约定、复用边界；素材版本与许可证见同目录 `SOURCES.md`。
 - [SKILL.md](SKILL.md)：主动设计流程——读题、查证、推荐、设计、实证；已确认场景只做索引。
-- [references/preferences.md](references/preferences.md)：T01–T15、症状索引与工作控件起点；明确反馈按范围保留。
-- [references/design-philosophy.md](references/design-philosophy.md)：内容立意、设计机会、按需三拨盘、概念与反 AI 味审查。
+- [references/preferences.md](references/preferences.md)：T01–T18、症状索引、已陈旧清单与工作控件起点；明确反馈按范围保留。
+- [references/design-philosophy.md](references/design-philosophy.md)：内容立意、设计机会、四拨盘（含材质档）、概念与反 AI 味审查。
 - [references/external-skills.md](references/external-skills.md)：四个外部 skill 的触发、组合工作流、真实安装名、路径与缺失处理。
 - [references/style-menu.md](references/style-menu.md)：内容 → 正向设计模式、叙事构图、外部检索、工作骨架与风格参考。
-- [references/motion.md](references/motion.md)：操作反馈、对象连续性、比较与滚动叙事，及减少动态效果退化。
+- [references/material.md](references/material.md)：材质与光——四层配方、海拔阶梯、锃亮按钮状态矩阵、磨砂剂量、塑料感诊断与可测验收。
+- [references/motion.md](references/motion.md)：交互状态矩阵、曲线与弹簧、现代平台能力（`@starting-style`/scroll-driven/View Transitions）、性能与降级。
 - [patterns.md](patterns.md)：S01 的图表、浮层、筛选、状态时间轴、响应式模式和踩坑。
 - [themes/README.md](themes/README.md)：美术风格层——皮肤索引、场景倾向、通用美术偏好与反感清单；确定界面结构后在此选皮肤。
+- [themes/cupertino.md](themes/cupertino.md)：分层的光——半像素环、锃亮主操作、磨砂浮层、负字距；配方与计算样式实测依据。
 - [themes/shadcn-neutral.md](themes/shadcn-neutral.md)：用户强烈认可的现代简洁方向，与亮蓝等既有主题并列选择；具体实现按项目目验。
-- [themes/paper-cream.md](themes/paper-cream.md)：暖白纸面 + 陶土强调 + 衬线标题，取值来自 code.claude.com/docs 线上实测。
+- [themes/paper-cream.md](themes/paper-cream.md)：暖白纸面 + 陶土强调 + 衬线标题，取值来自 code.claude.com/docs 线上实测；已标为陈旧，仅限阅读向。
 - [evolution.md](evolution.md)：按场景增删改查、处理冲突、记录证据与版本。
 - [scenarios/preview-workbench.md](scenarios/preview-workbench.md)：S02 的主题配对、字体、矩形面板、按钮、预览卡片与稀疏状态。
 - [scenarios/research-charts.md](scenarios/research-charts.md)：S03 的数据形态、曲线、比较维度和参考线。
 - [scenarios/analytical-workbench.md](scenarios/analytical-workbench.md)：S04 的关系问题、联合排行、维度汇总、分层展开和语义筛选。
 - [references/data-and-runtime.md](references/data-and-runtime.md)：分析界面的指标合并、快照采集、时间/留存边界和运行恢复约定，按任务选读。
-- [references/visual-craft.md](references/visual-craft.md)：六个参考源的组件、配色、摘要卡、图标、字体与标签做法，供各主题共同吸收。
+- [references/visual-craft.md](references/visual-craft.md)：六个参考源的组件、配色、摘要卡、图标、字体与标签做法，供各主题共同吸收；材质层另见 material.md。
 
 不需要提前设计所有未来场景：明确反馈 → 当前场景落地 → 认可后沉淀 → 在下一项目复用。
 

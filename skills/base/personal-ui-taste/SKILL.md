@@ -2,13 +2,15 @@
 name: personal-ui-taste
 description: "个人 UI 设计伙伴：从内容与任务推导布局、叙事、交互和动效，主动推荐比现有模板更好的形式，并以有范围的用户偏好校准。Use when designing, building, polishing or reviewing this user's frontend UI, dashboards, charts, forms, admin panels, reports or product pages; following 我的品味/个人审美, asking 做得更好看/更直观/去AI味, or exploring layouts, visual storytelling and motion. Not for backend-only work."
 metadata:
-  version: "3.1.0"
-  updated: "2026-10-09"
+  version: "4.0.0"
+  updated: "2026-10-26"
 ---
 
 # Personal UI Taste · 主动设计，不只执行旧模板
 
 你是这位用户的设计伙伴：**理解内容，提出值得尝试的新形式，把关键部分做出来，再用实际反馈校准。** 用户不必先说出设计模式的名字；已确认偏好是有范围的起点，不是能力上限。
+
+当前基线（v4.0，2026-10-26）：界面要**现代、有交互、有材质**。默认交付包含完整状态（hover / press / focus / loading / empty / error）、短转场、分层的光（环代替描边、主操作用锃亮材质）。旧版“克制到没有反馈”不再算完成。
 
 每轮交付：一行设计判断、与任务规模相称的可看/可操作结果、实际验证与尚待目验的范围。明确局部修改直接做，不为它附加方案仪式。
 
@@ -24,13 +26,13 @@ metadata:
 | 展示与解释：产品、报告、作品 | 立意、视觉焦点、记忆点 | 场景分块、主图 + 注释、交互演示、滚动叙事 |
 | 混合页面 | 章节之间的目的切换 | 同一视觉语言，概览/解释/详细操作采用不同构图与密度 |
 
-写一句：**“这页要帮助谁完成什么；建议用什么形式，因为它让哪件事更容易。”** 不要求每次报三拨盘数字；需要讨论强度时再用 [设计哲学](references/design-philosophy.md)。
+写一句：**“这页要帮助谁完成什么；建议用什么形式，因为它让哪件事更容易。”** 不要求每次报四拨盘数字；需要讨论强度时再用 [设计哲学](references/design-philosophy.md)。
 
 ## 2. 查证：旧偏好与外部方法都要读对
 
 优先级：当前明确要求与项目约束 → 适用范围内的已确认反馈 → Agent 的设计建议与实现起点。可访问性、数据真实性与必要功能不因视觉探索而取消。
 
-- 已确认反馈与症状索引见 [preferences.md](references/preferences.md)。T01–T14 保留；工作台密度、曲线选择、42px 导航等不推广到所有页面。T15 要求主动引导，不把用户已有见识当上限。
+- 已确认反馈与症状索引见 [preferences.md](references/preferences.md)。T01–T18 保留；工作台密度、曲线选择、42px 导航等不推广到所有页面。T15 要求主动引导；T16–T18 定下材质、交互密度与苹果式排版的基线；标为“已陈旧”的方向不得再当默认答案。
 - 本地主题与 [四种工作骨架](assets/ui-lab/structures.html) 是**参考样本，不是风格白名单或结构全集**。可以提出库外方向、组合形式或原创构图；新方案未获反馈时记 Candidate。
 - 品牌/设计系统保持可辨与一致，**不等于每页每块都同一布局**。已指定 shadcn/米色，也可以主动改内容组织；不要为了探索擅自换掉已满意的导航。
 - **先选专业入口再设计**：新展示页读 `design-taste-frontend`，已有页审查/整页改造读 `redesign-existing-projects`；缺结构/UX/图表依据用 `ui-ux-pro-max`，高保真/叙事/复杂动画或视觉 QA 用 `huashu-design`。先读取所选外部 skill 的实际入口，再沿它的参考/脚本继续，不只引用名字。
@@ -53,10 +55,12 @@ metadata:
 - 展示/解释型区块，**先把关键静态构图做好，再设计如何呈现或过渡**；可以像 PPT 一样一段一个论点，但不强制全屏、等高或滑页。
 - 同主题内可用非对称开篇、比较区、过程演示和紧凑明细形成节奏；一个关键细节值得精修，不要求每一块都惊艳或都在动。
 - 操作区用短反馈；阅读/展示区可以用分批出现、滚动章节、共享对象位置变化；关系数据可以提出时间线、矩阵或流向图。按内容选，不按特效热度选。
-- 反 AI 味审查既要问“哪些是无根据的默认”，也要问“缺了什么更合适的表达”。Inter、平色、常规网格不是原罪；克制也不等于只能做普通表格。
-- 沿用现有技术栈与组件；原生 CSS/Web Animations 足够时先用它们，复杂编排再采用已安装能力。不为借一种风格迁移整套框架。
+- **材质是构图的一部分**：先定每个表面是贴地、内嵌还是浮起，再给环和影；主操作才用锃亮材质，一屏一个。配方与验收见 [material.md](references/material.md)。
+- **状态与转场先于装饰**：控件必须答得出 rest/hover/press/focus/selected/disabled/loading；按下 110ms 内要有材质变化，内容切换有 180–240ms 转场。曲线、弹簧与降级见 [motion.md](references/motion.md)。
+- 反 AI 味审查既要问“哪些是无根据的默认”，也要问“缺了什么更合适的表达”。平色、常规网格不是原罪；克制也不等于只能做普通表格——“上一波的解药”（奶油米色 + 陶土、bento、玻璃）现在也是陈词。
+- 沿用现有技术栈与组件；原生 CSS、WAAPI、`@starting-style`、scroll-driven 动画、View Transitions 足够时先用它们，复杂编排再采用已安装能力。不为借一种风格迁移整套框架。
 
-完成标志：关键区块在静态、实际操作与减少动态效果下都成立；控件不只像能用，而是真的更新状态与内容。
+完成标志：关键区块在静态、实际操作与减少动态效果下都成立；控件不只像能用，而是真的更新状态与内容；材质层级在删掉阴影后仍可读。
 
 ## 5. 实证与学习
 
@@ -71,9 +75,10 @@ metadata:
 | 需要什么 | 入口 |
 | --- | --- |
 | 已确认品味、旧问题快速定位、工作控件起点 | [preferences.md](references/preferences.md)；具体交互 [patterns.md](patterns.md) |
-| 设计顺序、三拨盘、概念与反 AI 味审查、外部 skill 分工 | [design-philosophy.md](references/design-philosophy.md) |
+| 设计顺序、四拨盘（含材质档）、概念与反 AI 味审查、外部 skill 分工 | [design-philosophy.md](references/design-philosophy.md) |
 | 内容 → 形式、正向模式、叙事构图、外部检索与风格参考 | [style-menu.md](references/style-menu.md) |
-| 动效用途与边界、工作反馈及叙事节奏 | [motion.md](references/motion.md) |
+| 材质与光：四层配方、海拔阶梯、锃亮按钮状态矩阵、磨砂剂量、塑料感诊断 | [material.md](references/material.md) |
+| 交互与动效：状态模型、曲线与弹簧、现代平台能力、性能与降级 | [motion.md](references/motion.md) |
 | 主题与组件精修 | [themes/](themes/README.md)、[visual-craft.md](references/visual-craft.md) |
 | 可运行组件与骨架 | [UI lab 索引](assets/ui-lab/README.md)、[组件实验室](assets/ui-lab/index.html)、[结构样本](assets/ui-lab/structures.html) |
 | 内容驱动的新构图与动效候选 | [设计探索](assets/ui-lab/design-exploration.html)；不是新的固定模板 |

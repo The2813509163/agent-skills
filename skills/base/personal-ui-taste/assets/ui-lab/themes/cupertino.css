@@ -1,0 +1,107 @@
+/* Cupertino: 分层的光。半像素环代替描边，主操作带锃亮高光，其余保持安静。 */
+:root {
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  /* Apple 站点中性色：画布 #f5f5f7、正文 #1d1d1f、次级 #6e6e73、控件填充 #e8e8ed */
+  --canvas: #f5f5f7; --panel: #ffffff; --control: #e8e8ed;
+  --text: #1d1d1f; --text-2: #6e6e73;
+  --border: rgba(0, 0, 0, .07); --border-strong: rgba(0, 0, 0, .16); --control-bd: rgba(0, 0, 0, .06);
+  --accent: #0071e3; --accent-fg: #ffffff; --accent-hover: #006ae0;
+  --selected: #ffffff; --hover-bg: rgba(29, 29, 31, .045);
+  --c1: #0071e3; --c2: #5e5ce6; --c3: #00a3a3; --c4: #f0a020; --c5: #e5484d;
+  --ok: #1c8b3a; --warn: #b26a00; --bad: #d70015;
+  --ok-bg: #e3f5e7; --ok-fg: #15682c;
+  --warn-bg: #fdf2dc; --warn-fg: #8f5600;
+  --bad-bg: #fde8ea; --bad-fg: #b00012;
+  --info-bg: #e8f1fd; --info-fg: #0059b3;
+  --r-sm: 10px; --r-md: 16px; --r-lg: 20px;
+  /* 海拔：环 + 接触影 + 落影，三层各自负责「边界 / 贴地 / 悬浮」 */
+  --ring: 0 0 0 .5px rgba(0, 0, 0, .10);
+  --sh-1: var(--ring), 0 1px 2px rgba(0, 0, 0, .05), 0 4px 12px -4px rgba(0, 0, 0, .07);
+  --sh-2: var(--ring), 0 1px 3px rgba(0, 0, 0, .07), 0 14px 34px -12px rgba(0, 0, 0, .18);
+  --sh-pop: 0 0 0 .5px rgba(0, 0, 0, .08), 0 2px 6px rgba(0, 0, 0, .06), 0 28px 60px -20px rgba(0, 0, 0, .30);
+  --focus-ring: 0 0 0 4px rgba(0, 113, 227, .26);
+  --t-fast: 180ms cubic-bezier(.2, .8, .2, 1); --t-med: 320ms cubic-bezier(.2, .8, .2, 1);
+  --gap: 20px; --pad: 28px; --press-y: 0px; --bar-zoom: 1.04;
+  --card-lift: translateY(-2px);
+  --side-bg: #f5f5f7; --top-bg: rgba(255, 255, 255, .72);
+  --pop-bg: rgba(255, 255, 255, .82); --pop-blur: saturate(180%) blur(20px);
+  --thead: #f5f5f7;
+  /* 锃亮主操作：上浅下深的填充 + 顶缘高光 + 底缘内影 + 亚像素环 + 双层落影。
+     填充最亮端已到 #0071e3（白字 4.70:1）；再提亮就跌破 4.5，所以 hover 不加亮填充，改抬影与位移。 */
+  --gloss-fill: linear-gradient(180deg, #0071e3 0%, #0068d8 55%, #0059bd 100%);
+  --gloss-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .48),
+    inset 0 -1px 0 rgba(0, 0, 0, .14),
+    0 0 0 .5px rgba(0, 64, 133, .55),
+    0 1px 2px rgba(0, 58, 120, .30),
+    0 6px 16px -4px rgba(0, 80, 170, .42);
+  --gloss-shadow-hover:
+    inset 0 1px 0 rgba(255, 255, 255, .62),
+    inset 0 -1px 0 rgba(0, 0, 0, .14),
+    0 0 0 .5px rgba(0, 64, 133, .58),
+    0 2px 4px rgba(0, 58, 120, .32),
+    0 10px 24px -6px rgba(0, 80, 170, .50);
+  --gloss-shadow-press:
+    inset 0 2px 6px rgba(0, 40, 92, .38),
+    inset 0 -1px 0 rgba(255, 255, 255, .10),
+    0 0 0 .5px rgba(0, 64, 133, .50),
+    0 1px 1px rgba(0, 58, 120, .22);
+}
+
+/* 导航：常态透明，整行命中；选中才拿到一级表面 */
+.nav-item, .nav-item:hover, .nav-item.is-active { border-color: transparent; }
+.nav-item:hover { background: var(--hover-bg); box-shadow: none; }
+.nav-item.is-active { background: var(--panel); box-shadow: var(--sh-1); }
+.nav-item:active { transform: scale(.988); box-shadow: none; }
+
+/* 顶栏：磨砂玻璃只在浮起时出现，兜底是不透明白 */
+.top { border-bottom: 0; backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); }
+.side::after { background: linear-gradient(to bottom, transparent, rgba(0, 0, 0, .07) 12%, rgba(0, 0, 0, .07) 88%, transparent); }
+
+/* 分段选择：灰轨道 + 白thumb，thumb 靠环和短影离开轨道 */
+.seg { border-radius: 999px; padding: 3px; background: var(--control); box-shadow: inset 0 0 0 .5px rgba(0, 0, 0, .05); }
+.seg-item { border-radius: 999px; }
+.seg-item:hover:not(.is-on) { background: rgba(255, 255, 255, .55); box-shadow: none; }
+.seg-item.is-on { background: var(--panel); box-shadow: 0 0 0 .5px rgba(0, 0, 0, .05), 0 1px 3px rgba(0, 0, 0, .12), 0 4px 10px -4px rgba(0, 0, 0, .10); }
+
+/* 按钮：默认是控件填充（无高光），主操作才有锃亮层。按下 110ms，回弹 200ms——进快出慢 */
+.btn { background: var(--control); border-color: transparent; box-shadow: inset 0 .5px 0 rgba(255, 255, 255, .70), 0 0 0 .5px rgba(0, 0, 0, .06); font-weight: 500;
+  transition: background-color 180ms cubic-bezier(.2, .8, .2, 1), box-shadow 200ms cubic-bezier(.2, .8, .2, 1), filter 140ms ease, transform 200ms cubic-bezier(.2, .8, .2, 1); }
+.btn:active { transition-duration: 110ms; }
+.btn:hover { background: #ededf2; border-color: transparent; box-shadow: inset 0 .5px 0 rgba(255, 255, 255, .80), 0 0 0 .5px rgba(0, 0, 0, .08), 0 2px 6px -2px rgba(0, 0, 0, .10); }
+.btn:active { background: #e2e2e7; box-shadow: inset 0 1px 3px rgba(0, 0, 0, .10), 0 0 0 .5px rgba(0, 0, 0, .07); transform: scale(.985); }
+.btn.primary {
+  background: var(--gloss-fill); border-color: transparent; color: var(--accent-fg);
+  box-shadow: var(--gloss-shadow);
+  text-shadow: 0 .5px 0 rgba(0, 40, 92, .22);
+}
+.btn.primary:hover { background: var(--gloss-fill); box-shadow: var(--gloss-shadow-hover); transform: translateY(-.5px); }
+.btn.primary:active { background: linear-gradient(180deg, #0068d8 0%, #005cc4 52%, #0050ad 100%); box-shadow: var(--gloss-shadow-press); transform: translateY(.5px) scale(.99); }
+.btn.ghost { background: transparent; box-shadow: none; color: var(--text-2); }
+.btn.ghost:hover { background: var(--hover-bg); box-shadow: none; color: var(--text); }
+.btn.ghost:active { background: rgba(29, 29, 31, .08); box-shadow: none; }
+.btn.danger { background: var(--bad-bg); color: var(--bad-fg); box-shadow: inset 0 .5px 0 rgba(255, 255, 255, .60), 0 0 0 .5px rgba(215, 0, 21, .18); }
+
+/* 表面：分区靠发丝线（不加卡片墙）；真正的容器用半像素环 + 落影。环画在边框盒外，所以边框宽度必须归零，否则留 1px 缝 */
+.kpi, .card, .summary-card { border-width: 0; border-color: transparent; box-shadow: var(--sh-1); }
+.card:hover { box-shadow: var(--sh-2); }
+.main { box-shadow: 0 0 0 .5px rgba(0, 0, 0, .06); }
+
+.msel-pop, .tooltip, .toast { border-width: 0; border-color: transparent; box-shadow: var(--sh-pop); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); }
+.inp { background: var(--panel); border-width: 0; border-color: transparent; box-shadow: 0 0 0 .5px rgba(0, 0, 0, .12); }
+.inp:hover { box-shadow: 0 0 0 .5px rgba(0, 0, 0, .18); }
+.inp:focus { border-color: transparent; box-shadow: 0 0 0 .5px var(--accent), var(--focus-ring); }
+.search { background: var(--control); border-width: 0; border-color: transparent; box-shadow: inset 0 0 0 .5px rgba(0, 0, 0, .04); }
+.search:focus-within { background: var(--panel); border-color: transparent; box-shadow: 0 0 0 .5px var(--accent), var(--focus-ring); }
+
+/* 排版：负字距 + 600 字重，靠层次而非体量。系统字体只有离散字重，避免 540/640 这类会被就近吸附的值 */
+.page-heading h1 { letter-spacing: -.032em; font-size: 30px; font-weight: 600; }
+.panel h2, .card-body h3 { letter-spacing: -.012em; }
+.kpi-v { letter-spacing: -.028em; font-weight: 600; }
+.tbl th { background: transparent; border-bottom: .5px solid rgba(0, 0, 0, .10); border-radius: 0; }
+.tbl th:first-child, .tbl th:last-child { border-radius: 0; }
+.badge { font-weight: 500; letter-spacing: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .btn.primary:hover, .btn:active, .nav-item:active { transform: none; }
+}

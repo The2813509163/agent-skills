@@ -82,6 +82,18 @@
 - 时间交互：新增分钟默认整点、允许手动改分钟，明确避免空原生 time 的浏览器显示差异与默认时间意外提交；具体新实现尚待用户进一步反馈，不把技术验证等同于审美认可。
 - 参考：[S02](scenarios/preview-workbench.md)、[时间选择模式](patterns.md#7-每日时间点24-小时制与整点默认)。
 
+### 2026-10-26 · 材质、交互与苹果式基线 · v4.0.0
+
+- 状态：Confirmed（用户明确给出方向与原话）；具体实现与主题观感 Candidate，待目验
+- 证据：用户指出旧版“不够交互，不够现代，不够苹果”，喜欢苹果软件里“锃亮锃亮”的按钮，同时要求“不要过于畸形”；指定参考 `docs.firecrawl.dev`、`supermimic.github.io`、`fireworks.ai`，并要求清理陈旧的审美段落
+- 实测：三站计算样式——Supermimic 用 `#f5f5f7`/`#1d1d1f`/`#6e6e73`/`#e8e8ed`、环 `0 0 0 1px rgba(0,0,0,.06)` + `0 6px 24px rgba(0,0,0,.04)`、`saturate(1.8) blur(20px)`、80px 标题配 `-1.2px` 字距与字重 600；Fireworks 暖白 `#f9f7f5` 配 `#280016` 墨色、96px 胶囊 52px 高、衬线标题 `-0.03em`；Firecrawl 12/16px 圆角、150ms 微交互、按钮下缘 `inset 0 2px 0` 彩色高光。三者共性只有中性色阶、单强调色、150–300ms 微交互
+- 外部方法：`taste-skill` 的 `tells.md` 是带日期的陈词表，其第三波明确点名“奶油米色 + 陶土”是 2026 最可辨认的生成外观；`huashu-design` 的 `apple-gallery-showcase.md` 亦自述“暖米白+陶土正是 2026 AI 默认外观第一条”。两者均只借方法，不搬其禁令
+- 规则：新增 T16 材质与按钮、T17 现代感与交互密度、T18 苹果式排版；新开“已陈旧”清单，把奶油+陶土、bento 当苹果风、满页玻璃、紫渐变降为局部参考
+- 判定：三拨盘加第四档 `MATERIAL`，浅色工作台基线改为 3/3/6/5；“材质档不等于越高越高级”
+- 变化：新增 [material.md](references/material.md)（四层配方、海拔阶梯、锃亮按钮状态矩阵、磨砂剂量、塑料感诊断、取样式验收）；重写 [motion.md](references/motion.md)（状态矩阵、按下 90–120ms、四档曲线与弹簧、`@starting-style`/scroll-driven/View Transitions、性能与降级）；新增主题 [cupertino](themes/cupertino.md) 与可运行 [cupertino.css](assets/ui-lab/themes/cupertino.css)，已注册进 ui-lab 主题表
+- 旧内容处理：`paper-cream` 不删除——它来自用户当初指定 Claude 文档站观感，属已确认的局部场景；改为“仅限阅读向 + 标注陈旧 + 不再作高级感默认”。`bento` 保留布局手法定位，撤销“苹果风”表述。`aurora-glass` 保留但限浮起层并降量
+- 边界：锃亮只给一屏一个主操作，不做满页渐变；不复制 macOS 窗口控件；材质配方已经计算样式实测（5 层阴影、`.5px` 环、按下换内影），但**整体观感未获用户目验**，不写成 Confirmed
+
 ## 候选与局部例外
 
 ### 2026-09-15 · 数据看板的塑料感 · v1.3.0
