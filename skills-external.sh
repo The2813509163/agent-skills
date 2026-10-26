@@ -47,15 +47,43 @@ if (!removed) console.log('nothing to remove');
 JS
 }
 
+# 上游已把 redesign-existing-projects 并进 design-taste-frontend。已装旧机器需清理，
+# 否则它永远停在 ~/.agents/skills 里、继续误导路由。未登记的本地副本只提示不删。
+migrate_obsolete_skills() {
+  node - "$HOME" <<'JS'
+const fs = require('node:fs');
+const path = require('node:path');
+const home = process.argv[2];
+const name = 'redesign-existing-projects';
+const lockPath = path.join(home, '.agents', '.skill-lock.json');
+const lock = fs.existsSync(lockPath) ? JSON.parse(fs.readFileSync(lockPath, 'utf8')) : {};
+const skills = lock.skills || {};
+const dirs = [path.join(home, '.agents', 'skills', name), path.join(home, '.claude', 'skills', name)];
+const present = dirs.some(d => fs.existsSync(d));
+const entry = skills[name];
+if (entry && (entry.source || '').includes('taste-skill')) {
+  for (const d of dirs) if (fs.existsSync(d)) fs.rmSync(d, { recursive: true, force: true });
+  delete skills[name];
+  lock.skills = skills;
+  fs.writeFileSync(lockPath, JSON.stringify(lock, null, 2) + '\n');
+  console.log('migrated: ' + name + ' 已并入 design-taste-frontend，旧副本已移除');
+} else if (present) {
+  console.log('NOTE: ' + name + ' 是未登记本地副本，保留；上游已移除该 skill，可手工删除');
+}
+JS
+}
+
 if [ "$UNINSTALL" = 1 ]; then
   uninstall_design_skills
   echo "外部设计依赖已清理；personal-ui-taste 降级为内置方法。重装：bash $ROOT/skills-external.sh --yes"
   exit 0
 fi
 
-# 非交互（管道、CI）默认安装，保持原行为；SKILLS_EXTERNAL=0 可显式跳过。
+migrate_obsolete_skills
+
+# 非交互（管道、CI）默认安装，保持原行为；SKILLS_EXTERNAL=skip 只跳安装，不跳迁移。
 if [ "${SKILLS_EXTERNAL:-install}" = skip ]; then
-  echo "SKILLS_EXTERNAL=skip：跳过外部设计依赖"
+  echo "SKILLS_EXTERNAL=skip：跳过外部设计依赖安装"
   exit 0
 fi
 if [ "$ASSUME_YES" = 0 ] && [ -t 0 ]; then
