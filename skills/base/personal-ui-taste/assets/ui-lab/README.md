@@ -2,7 +2,7 @@
 
 直接用浏览器打开 [index.html](index.html)。原生 HTML/CSS/JS，无构建、无服务器、无在线字体或接口请求。
 
-- 八套主题：shadcn-neutral、**paper-cream（暖白纸面）**、modern-saas、bespoke、bento、swiss、aurora-glass、soft-ui
+- 九套主题：**cupertino（分层的光、锃亮主操作）**、shadcn-neutral、paper-cream（暖白纸面，已陈旧·仅阅读向）、modern-saas、bespoke、bento（布局手法）、swiss、aurora-glass、soft-ui
 - 两个对照：旧 baseline、layered 阴影技法；不加入正式风格选项
 - [structures.html](structures.html)：四种**工作型结构样本**，可叠加切主题；不是全部设计形式
 - [design-exploration.html](design-exploration.html)：新增内容驱动的构图/动效候选，中性与米色对比；静态正文始终可读，无外部请求
@@ -66,6 +66,7 @@ React 项目需要 shadcn 时采用官方组件。此处 `shadcn-neutral` 是原
 | 选中、hover、焦点 | `--selected`、`--hover-bg`、`--focus-ring` |
 | 状态 | `--ok/warn/bad` 及各自 `-bg`、`-fg`；图表另用 `--c1`…`--c5` |
 | 比例与质感 | `--font`、`--font-display`（展示标题字体，仅部分主题使用）、`--r-sm/md/lg`、`--sh-1/2/pop`、`--pad`、`--gap`、`--t-fast/med` |
+| 材质（仅 cupertino） | `--ring`（半像素环）、`--gloss-fill`、`--gloss-shadow`、`--gloss-shadow-hover`、`--gloss-shadow-press`；口径见 [material.md](../../references/material.md) |
 
 `base.css` 管共用结构；每个主题 CSS 包含完整变量及少量控件覆盖。产品默认只取所选主题，切换器仅留在有明确多主题需求的页面。
 

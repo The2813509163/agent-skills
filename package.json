@@ -9,7 +9,8 @@
       "pi/extensions/pretty-tui/index.ts",
       "pi/extensions/ui/index.ts",
       "pi/extensions/later.ts",
-      "pi/extensions/message-timing.ts"
+      "pi/extensions/message-timing.ts",
+      "pi/extensions/context-rewrite.ts"
     ],
     "themes": [
       "pi/themes"

@@ -28,10 +28,10 @@ export function outputSettings() {
   return { bytes, readBytes, directory };
 }
 
-// skill 文本是随包分发的固定说明，读进来就该是全文，不转占位符。
+// skill 文本是随包分发的固定说明，读进来就该是全文；context-mode 的结果是 Agent 主动提取的，也不该被外置。
 export function eligibleOutput(tool, sourcePath) {
   return tool !== READ_TOOL && tool !== "context_rewrite" && tool !== "skill" &&
-    !/(^|_)(ctx_[a-z_]+|ask_user_question|question|todowrite|todoread)$/.test(tool) &&
+    !/(^|_)(ctxm?_[a-z_]+|ask_user_question|question|todowrite|todoread)$/.test(tool) &&
     !tool.includes("claude_mem") &&
     basename(sourcePath ?? "") !== "SKILL.md";
 }

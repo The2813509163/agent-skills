@@ -109,7 +109,7 @@ for g in $SYNC_GROUPS; do
 done
 
 echo "== 本仓 skills 同步完成:装 $N_INST,更新 $N_UPD,保留 $N_KEEP,未变 $N_SAME =="
-echo "== 外部 skills:补装设计依赖，更新已登记第三方(不含本仓) =="
+echo "== 外部 skills:设计依赖(询问后安装)、PPT引擎(按组) + 更新已登记第三方(不含本仓) =="
 status=0
 if [ "$with_ppt" = 1 ]; then
   bash "$source_root/skills-external.sh" --ppt || status=1

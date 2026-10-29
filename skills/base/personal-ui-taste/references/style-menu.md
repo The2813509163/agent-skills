@@ -82,7 +82,7 @@ python3 "$skill/scripts/search.py" "scroll reveal stagger" --domain gsap -n 2
 
 ## 五、风格条目（参考方向，不是白名单）
 
-"气质 → 落地要点"的速查。本地已实现的皮肤见 [themes/](../themes/README.md)，未实现的用查询词去 `ui-ux-pro-max` 取完整 token：
+"气质 → 落地要点"的速查。本地已实现的皮肤见 [themes/](../themes/README.md)，未实现的用查询词去 `ui-ux-pro-max` 取完整 token；材质配方统一看 [material.md](material.md)：
 
 ```bash
 python3 ~/.agents/skills/ui-ux-pro-max/scripts/search.py "<查询词>" --domain style   # 或 --design-system
@@ -90,13 +90,14 @@ python3 ~/.agents/skills/ui-ux-pro-max/scripts/search.py "<查询词>" --domain 
 
 | 风格 | 气质 | 适合 | 需权衡 | 落地要点 | 本地 / 查询词 |
 | --- | --- | --- | --- | --- | --- |
-| 文档纸面 | 暖白、安静、可信 | 文档、说明、阅读型产品 | 密集数据需无衬线读数与清楚层级 | 暖白画布、暖灰文字、单一陶土强调、标题衬线、发丝线代替阴影 | [paper-cream](../themes/paper-cream.md) |
+| 分层的光（Cupertino） | 现代、精致、有材质 | 产品界面、设置、工作台、营销交互区 | 高密度表格需降材质剂量 | 半像素环代替描边、锃亮主操作、磨砂浮层、负字距、系统字体栈 | [cupertino](../themes/cupertino.md) |
+| 文档纸面 | 暖白、安静、可信 | 文档、说明、阅读型产品 | **已陈旧**：奶油+陶土是 2026 AI 生成外观识别符 | 暖白画布、暖灰文字、单一陶土强调、标题衬线、发丝线代替阴影 | [paper-cream](../themes/paper-cream.md)（仅阅读向） |
 | 极简中性 | 克制、组件统一 | 工作台、设置、管理界面 | 需要强品牌感的营销页 | 中性主操作、精细边界、统一控件比例 | [shadcn-neutral](../themes/shadcn-neutral.md) |
 | 现代 SaaS | 明亮、效率 | 仪表盘、分析台 | 阅读型长文 | 浅色表面 + 亮蓝主操作、状态色鲜明、数据可视化优先 | [modern-saas](../themes/modern-saas.md) |
 | 观测站 / 仪器 | 精确、工程感 | 科研看板、实验监控 | 消费级产品 | 网格画布、铭牌线条、读数用大字号 | [bespoke](../themes/bespoke.md) |
-| 预览卡片 | 轻、有呼吸 | 内容以图片/预览为主 | 密集表格 | 大圆角白块、阴影分层、无边界 | [bento](../themes/bento.md) |
+| 预览卡片 | 轻、有呼吸 | 内容以图片/预览为主 | 密集表格；**只当布局手法，不当苹果风** | 大圆角白块、阴影分层、无边界 | [bento](../themes/bento.md) |
 | 瑞士网格 | 理性、正式 | 文档型、机构、极简专业 | 亲和型消费产品 | 数学栅格、发丝线、直角、单一强色 | [swiss](../themes/swiss.md) |
-| 玻璃 | 通透、层次 | 浮层、导航、轻量面板 | 长列表与表格 | 平色玻璃（去渐变）、清楚文字层次、实色兜底 | [aurora-glass](../themes/aurora-glass.md) |
+| 玻璃 | 通透、层次 | 浮层、导航、轻量面板 | **降量使用**：只在浮起层，占屏幕面积小 | 平色玻璃（去渐变）、清楚文字层次、实色兜底 | [aurora-glass](../themes/aurora-glass.md) |
 | 柔和粉彩 | 亲和、低压力 | 表单、设置、轻量工具 | 合规与金融严肃场景 | 降亮、圆润字形、柔和阴影 | [soft-ui](../themes/soft-ui.md) |
 | 编辑杂志 | 有观点、可读 | 内容站、长文、品牌故事 | 高频操作台 | 非对称栅格、衬线正文、大图与引言 | `editorial grid magazine` |
 | 布鲁塔 | 强硬、直接 | 作品集、实验性产品、开发者工具 | 政务与金融 | 直角、粗描边、无过渡、单色高对比 | `brutalism` / `neo brutalism` |

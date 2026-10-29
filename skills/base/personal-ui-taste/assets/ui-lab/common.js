@@ -2,6 +2,7 @@
 "use strict";
 const THEMES = [
   ["shadcn-neutral", "Shadcn Neutral", "浅色中性、开放式读数、克制边界"],
+  ["cupertino", "Cupertino · 分层的光", "半像素环、锃亮主操作、磨砂浮层、负字距"],
   ["paper-cream", "Paper Cream · 暖白纸面", "暖白纸面、陶土强调、衬线页标题"],
   ["modern-saas", "Modern SaaS · 浅色亮蓝", "浅色导航、亮蓝主操作、鲜明状态信号"],
   ["bespoke", "Bespoke · 观测站", "蓝图网格、仪器铭牌、IBM Plex 字体"],

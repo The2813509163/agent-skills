@@ -70,12 +70,20 @@ def external_checks(tmp, env):
     assert p.returncode == 0 and "ppt-master" not in text, (p.stdout, p.stderr, text)
     assert "nju-ppt" not in text, "本仓ppt条目不得交给第三方更新"
     assert "redesign-existing-projects" not in text, "上游已移除的skill不再代装或代更新"
-    assert (shared / "redesign-existing-projects/SKILL.md").is_file(), "保留已有副本"
+    assert not (shared / "redesign-existing-projects").exists(), "沿用上游迁移已登记旧副本"
+    write(shared / "redesign-existing-projects/SKILL.md", "unregistered local copy\n")
     calls.unlink(missing_ok=True)
     p, text = check("--ppt")
     assert p.returncode == 0, p.stderr
     assert "add hugohe3/ppt-master --skill ppt-master -g -y --agent pi" in text, text
+    assert (shared / "redesign-existing-projects/SKILL.md").read_text() == "unregistered local copy\n"
     calls.unlink(missing_ok=True)
+    e["SKILLS_EXTERNAL"] = "skip"
+    p, text = check("--ppt")
+    assert p.returncode == 0 and "add hugohe3/ppt-master --skill ppt-master" in text, (p.stderr, text)
+    assert "add nextlevelbuilder" not in text and "add alchaincyf" not in text
+    calls.unlink(missing_ok=True)
+    e.pop("SKILLS_EXTERNAL")
     write(shared / "ppt-master/SKILL.md", "local custom engine\n")
     p, text = check("--ppt")
     assert p.returncode != 0 and "ppt-master" in p.stderr and "ppt-master" not in text

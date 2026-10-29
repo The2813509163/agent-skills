@@ -54,6 +54,18 @@
 
 ## 已确认记录
 
+> 以下条目是**历史证据**，不是现行规范。旧条目里的数值、材质写法与拨盘基线可能已被后续版本取代；冲突时以 [preferences.md](references/preferences.md)（规则）、[material.md](references/material.md)（材质）与 [motion.md](references/motion.md)（交互）为准。保留日志是为了说明“为什么变成现在这样”与跨机器合并，不用于拄写法。
+
+### 2026-10-27 · 外部设计依赖收细到三个，改为询问式安装 · v4.1.0
+
+- 状态：Confirmed（用户定下口径“我们负责做好自己的，外部资源不过分维护，直接给安装选项，skill 里引用”）
+- 证据（实测，非推测）：`Leonxlnx/taste-skill` 上游现在只含一个 skill `design-taste-frontend`（542 行）；README 的 Moved skills 明写 `redesign-existing-projects` 已被它吸收（“audits an existing page in a real browser”）。我们却仍在 `skills-external.sh` 里装这个名字——一直在静默失败（`npx` 报错、`status=1` 后流程继续），而 SKILL.md、external-skills.md、根 README 都在把 agent 路由到一个不存在的 skill
+- 变化：`skills-external.sh` 删掉 `redesign-existing-projects` 的安装与锁表条目，并把它列入 obsolete（旧机器上的残留目录不进更新列表）；路由改成“新页与已有页审查都用 design-taste-frontend”
+- 安装策略：三个设计依赖改为**询问式**（默认 Y，`--yes` 免询问，`SKILLS_EXTERNAL=skip` 跳一次，无 TTY 时默认安装保持原行为）；新增 `--uninstall`，同步清 `~/.agents/skills`、`~/.claude/skills` 镜像与 `.skill-lock.json` 条目，不碰其他第三方
+- 为什么不装 classics：`taste-skill-classics` 里的 `high-end-visual-design`、`minimalist-ui`、`industrial-brutalist-ui`、`-v1`、`-v2-experimental` 实测全部声明 `opt-in: it runs only when called by name`（`disable-model-invocation`），装进来也不会被自动选中；它们是同一方法的旧版与兄弟风格，不是“脚手架+组件库”式的互补能力。用户当前目标是“寻常好看优雅简洁”，正是 design-taste-frontend 的默认定位
+- “用完手删省上下文”的修法：常驻成本其实是索引里的 description（`design-taste-frontend` ≈242 tokens、`huashu-design` ≈80），真正贵的是误读一个不该读的 SKILL.md；所以做法是**把路由判决写准 + 给一条幂等的卸载命令**，而不是鼓励 `rm -rf`（会留下孤儿 lock 条目，下次自动补装）
+- 边界：不引入 classics/imagegen-skills 变体；不改第三方正文；降级路径（不装这三个）仍需能靠内置 material/motion/风格菜单完成寻常设计
+
 ### 2026-09-13 · 跨页面个人品味基线 · v1.0.0
 
 - 状态：Confirmed。
@@ -81,6 +93,18 @@
 - 变化与原因：提炼实际主题 tokens、系统 UI 字体、细边框圆角面板、图片主导卡片与渐进操作；状态密度由内容和交互决定，不因名称相同强套细灯带。
 - 时间交互：新增分钟默认整点、允许手动改分钟，明确避免空原生 time 的浏览器显示差异与默认时间意外提交；具体新实现尚待用户进一步反馈，不把技术验证等同于审美认可。
 - 参考：[S02](scenarios/preview-workbench.md)、[时间选择模式](patterns.md#7-每日时间点24-小时制与整点默认)。
+
+### 2026-10-26 · 材质、交互与苹果式基线 · v4.0.0
+
+- 状态：Confirmed（用户明确给出方向与原话）；具体实现与主题观感 Candidate，待目验
+- 证据：用户指出旧版“不够交互，不够现代，不够苹果”，喜欢苹果软件里“锃亮锃亮”的按钮，同时要求“不要过于畸形”；指定参考 `docs.firecrawl.dev`、`supermimic.github.io`、`fireworks.ai`，并要求清理陈旧的审美段落
+- 实测：三站计算样式——Supermimic 用 `#f5f5f7`/`#1d1d1f`/`#6e6e73`/`#e8e8ed`、环 `0 0 0 1px rgba(0,0,0,.06)` + `0 6px 24px rgba(0,0,0,.04)`、`saturate(1.8) blur(20px)`、80px 标题配 `-1.2px` 字距与字重 600；Fireworks 暖白 `#f9f7f5` 配 `#280016` 墨色、96px 胶囊 52px 高、衬线标题 `-0.03em`；Firecrawl 12/16px 圆角、150ms 微交互、按钮下缘 `inset 0 2px 0` 彩色高光。三者共性只有中性色阶、单强调色、150–300ms 微交互
+- 外部方法：`taste-skill` 的 `tells.md` 是带日期的陈词表，其第三波明确点名“奶油米色 + 陶土”是 2026 最可辨认的生成外观；`huashu-design` 的 `apple-gallery-showcase.md` 亦自述“暖米白+陶土正是 2026 AI 默认外观第一条”。两者均只借方法，不搬其禁令
+- 规则：新增 T16 材质与按钮、T17 现代感与交互密度、T18 苹果式排版；新开“已陈旧”清单，把奶油+陶土、bento 当苹果风、满页玻璃、紫渐变降为局部参考
+- 判定：三拨盘加第四档 `MATERIAL`，浅色工作台基线改为 3/3/6/5；“材质档不等于越高越高级”
+- 变化：新增 [material.md](references/material.md)（四层配方、海拔阶梯、锃亮按钮状态矩阵、磨砂剂量、塑料感诊断、取样式验收）；重写 [motion.md](references/motion.md)（状态矩阵、按下 90–120ms、四档曲线与弹簧、`@starting-style`/scroll-driven/View Transitions、性能与降级）；新增主题 [cupertino](themes/cupertino.md) 与可运行 [cupertino.css](assets/ui-lab/themes/cupertino.css)，已注册进 ui-lab 主题表
+- 旧内容处理：`paper-cream` 不删除——它来自用户当初指定 Claude 文档站观感，属已确认的局部场景；改为“仅限阅读向 + 标注陈旧 + 不再作高级感默认”。`bento` 保留布局手法定位，撤销“苹果风”表述。`aurora-glass` 保留但限浮起层并降量
+- 边界：锃亮只给一屏一个主操作，不做满页渐变；不复制 macOS 窗口控件；材质配方已经计算样式实测（5 层阴影、`.5px` 环、按下换内影），但**整体观感未获用户目验**，不写成 Confirmed
 
 ## 候选与局部例外
 

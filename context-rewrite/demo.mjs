@@ -50,6 +50,10 @@ try {
   await writeFile(skillPath, skillText);
   assert.equal(await store.capture([skillText], { tool: "read", sourcePath: skillPath }), undefined);
   assert.equal(await store.capture([skillText], { tool: "skill" }), undefined);
+  // context-mode 工具结果也不外置（Agent 主动提取的输出，长是正常的）
+  assert.equal(await store.capture([medium], { tool: "ctxm_execute" }), undefined);
+  assert.equal(await store.capture([medium], { tool: "ctxm_batch_execute" }), undefined);
+  assert.equal(await store.capture([medium], { tool: "mcp__web__ctxm_search" }), undefined);
   const bigger = "b".repeat(60 * 1024);
   const bigPath = join(directory, "big.txt");
   await writeFile(bigPath, bigger);
@@ -69,4 +73,4 @@ try {
   await assert.rejects(() => reopened.retrieve({ id: "../../outside", full: true }));
   await assert.rejects(() => reopened.retrieve({ id: saved.id, offset: 1 }));
 } finally { await rm(directory, { recursive: true, force: true }); }
-console.log("通过：近期纠错；外置阈值、分工具阈值、skill 豁免、去重、完整取回、UTF-8 分页、重开、路径边界。");
+console.log("通过：近期纠错；外置阈值、分工具阈值、skill 豁免、ctxm 豁免、去重、完整取回、UTF-8 分页、重开、路径边界。");
