@@ -11,7 +11,7 @@
 | `kb-*`知识 | 带条件的经验、参考、反例；支持跨项目判断 | 完整领域能力或新场景的实测 |
 | 独立领域项目 | 发现入口、适用条件、任务交接与缺失处理 | 接管正文、工具、案例与技术更正 |
 
-统一的是协作与证据底线，不是所有人的整套环境。`base/research/accel/kb`继续表达安装选择与更新策略；当前默认配置是推荐组合，不等于每项个人偏好都是团队规范。
+统一的是协作与证据底线，不是所有人的整套环境。`base/research/accel/kb/ppt`继续表达安装选择与更新策略；当前默认配置是推荐组合，不等于每项个人偏好都是团队规范。
 
 知识可以通过skill交付；独立与否取决于使用者、共同演化的内容和发布责任，不按深浅或文件数划线。成熟领域自行发展，主体引用；实际复用出现反复的检索/冲突/发布困难时再补设施，不预建通用知识平台。
 
@@ -21,7 +21,7 @@
 | Pi | 与 OpenCode 共享记忆配置 |
 | Codex | best effort；复用 skills 原文，不改工作流 |
 
-[快速安装](#快速安装) · [Skills](#skills本仓-33-个) · [首次部署](#首次部署只需要网关--5-个-key) · [Windows](#windowsgit-bash) · [Codex](#codex-插件配置best-effort) · [Pi](#pi-配置) · [OpenCode](#opencode-安装与迁移) · [更新](#更新)
+[快速安装](#快速安装) · [Skills](#skills本仓-34-个) · [首次部署](#首次部署只需要网关--5-个-key) · [Windows](#windowsgit-bash) · [Codex](#codex-插件配置best-effort) · [Pi](#pi-配置) · [OpenCode](#opencode-安装与迁移) · [更新](#更新)
 
 ## 快速安装
 
@@ -43,7 +43,7 @@ winget install --id Git.Git -e --source winget
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-skills/main/opencode-setup.sh)" -- -y
 ```
 
-先安装 OpenCode **v1 或 v2**；已有安装先退出 TUI 和后台服务。脚本按主版本部署插件，兼容旧散装入口；宿主升级在脚本里问一次（默认 Y，配置里自动更新默认关闭），不迁移会话库。默认同步 base skills；交互时可分别选择 research、accel、kb 组。只更新插件用 `--plugins-only`，预检用 `--check`，详见[安装与迁移](#opencode-安装与迁移)。
+先安装 OpenCode **v1 或 v2**；已有安装先退出 TUI 和后台服务。脚本按主版本部署插件，兼容旧散装入口；宿主升级在脚本里问一次（默认 Y，配置里自动更新默认关闭），不迁移会话库。默认同步 base skills；交互时可分别选择 research、accel、kb、ppt 组（均默认N，`-y`跳过）。只更新插件用 `--plugins-only`，预检用 `--check`，详见[安装与迁移](#opencode-安装与迁移)。
 
 **Pi**
 
@@ -57,7 +57,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-ski
 bash -c "$(curl -fsSL --connect-timeout 8 -m 60 https://raw.githubusercontent.com/brilliantrough/agent-skills/main/skills-sync.sh)" -- base
 ```
 
-`base` 安装基础 17 个；`base research` 追加 7 个算法研究 skill；`all` 安装四组共 33 个。也可把 `research`、`accel`、`kb` 作为额外参数传给 `skills-sync.sh`。所有组都默认补装四个外部设计 skill，并更新已登记第三方。需要 curl、git、Node/npx；安装位置 `~/.agents/skills/`，重开会话生效。
+`base` 安装基础 17 个；`base research` 追加 7 个算法研究 skill；`all`或无参数安装五组共 34 个，包含PPT及其Python依赖。也可把 `research`、`accel`、`kb`、`ppt` 作为额外参数传给 `skills-sync.sh`。所有组都默认补装四个外部设计 skill，并更新已登记第三方；只有选择 `ppt` 才补装 `ppt-master` 并准备独立Python环境。需要 curl、git、Node/npx；安装位置 `~/.agents/skills/`，OpenCode V2可自动发现，未显示时用 `/reload`。
 
 **Codex（best effort）**
 
@@ -84,9 +84,9 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-ski
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-skills/main/pi-setup.sh)"
 ```
 
-## Skills（本仓 33 个）
+## Skills（本仓 34 个）
 
-基础 17 个；算法研究 7 个；算力模板 7 个与公共知识 2 个按需选装。`research` 与 `kb` 随仓库刷新，`accel` 缺才装；另有四个设计依赖直接来自上游仓库，不复制到本仓。
+基础 17 个；算法研究 7 个；算力模板 7 个、公共知识 2 个与PPT 1个按需选装。`research`、`kb` 与 `ppt` 随仓库刷新，`accel` 缺才装；外部引擎与设计依赖直接来自上游，不复制到本仓。
 
 ### 工程技能
 
@@ -193,6 +193,59 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-ski
 |---|---|
 | `editable-vector-slides` | SVG/PDF 科研图 → 可编辑矢量 PDF + 原生 PPTX；保留路径/文字/渐变/阴影，非截图；含依赖安装、验收与踩坑清单 |
 
+### 南京大学演示文稿（ppt 组，可选）
+
+**当前为功能分支试装版：main尚未发布该组。** 素材提供者已确认可公开，确认范围与权利边界见 [素材说明](skills/ppt/nju-ppt/ASSETS-NOTICE.md)。main入口仅在合并后可用；合并前使用下方分支命令。
+
+| Skill | 用途 |
+| --- | --- |
+| [`nju-ppt`](skills/ppt/nju-ppt/SKILL.md) | 银杏金＋清浅蓝固定模板；凝练文案，11页型，调用外部 `ppt-master` 生成原生可编辑图表、表格与备注 |
+
+首次安装或更新时，运行**不带 `-y`** 的完整setup，在“南京大学模板、ppt-master”选项输入 `y`（默认N）：
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-skills/main/opencode-setup.sh)"
+```
+
+同一入口既能首次选装，也能更新已安装的PPT组。输入N则本次不安装／更新该组，不卸载原有skill；带 `-y` 仍默认跳过PPT。主分支发布前，该线上命令尚不会出现新选项。
+
+只安装／更新PPT、不改插件和模型配置：
+
+```bash
+bash skills-sync.sh ppt
+```
+
+- 同步器默认下载GitHub main，不读取本地工作树；分支验收可设 `AGENT_SKILLS_REF`，入口URL也须指向同一分支
+- 选中PPT即允许准备其外部skill与核心Python包；需要Python 3.10+，可用 `NJU_PPT_PYTHON` 指定单个解释器路径
+- 独立环境位于 `~/.local/share/agent-skills/nju-ppt/venv`；不改系统Python，不安装Office／字体／系统代理
+- 模板随 `nju-ppt` 打包，用完整外部root安装到本次项目，不修改 `ppt-master` 全局索引
+- `ppt-master` 同名本地或不同源副本保留并告警；手动指定已确认引擎及缺件处理见 [运行环境](skills/ppt/nju-ppt/references/runtime.md)
+- `.md/.txt`基础路径无需AI图像API密钥；DOCX/PDF/旁白等沿用上游按需依赖与许可
+- 单独用其它skill管理器复制本包，不代表引擎、Python依赖已自动准备
+
+功能分支试装（不改main，不安装／更新插件和模型配置；仅同步PPT组及公共外部skill依赖）：
+
+```bash
+AGENT_SKILLS_REF=feat/nju-ppt-optional bash -c "$(curl -fsSL --connect-timeout 8 -m 60 https://raw.githubusercontent.com/brilliantrough/agent-skills/feat/nju-ppt-optional/skills-sync.sh)" -- ppt
+```
+
+测试完整setup时，同样在命令前设置 `AGENT_SKILLS_REF=feat/nju-ppt-optional` 并将入口URL的 `main` 换成该分支；不带 `-y`，PPT组选Y。公开分支不限制学生身份，素材说明不代表校方背书。
+
+使用示例：
+
+> 用南京大学模板，把这份Markdown做成PPT，面向初学者，15页。
+
+固定视觉不再询问。内容确认按 `ppt-master` 和本用户授权处理；需要直接完成可明确说“无需大纲确认，直接生成”，不继承模板作者的授权。
+
+| 平台／能力 | 新分发链验证状态 |
+| --- | --- |
+| Windows Git Bash＋Python | 隔离HOME的分支测试通过；main tarball和外部阶段用替身，未冒充真实线上安装 |
+| 引擎及核心依赖 | 上游CLI真实下载 `ppt-master`、全新venv安装、包内模板契约与项目内安装通过 |
+| Windows原生导出及PowerPoint | 11页型审阅通过（2图表＋1表格）；另用完整TXT新做15页成稿，2原生表格、15页备注，PowerPoint检查182个文本框无溢出 |
+| 新用户自动触发 | 本轮在原会话显式加载仓库新包和隔离引擎；真正全新OpenCode用户会话尚未测，不将两者等同 |
+| macOS / Linux / WSL | 未实测；字体、导出与预览分别验证 |
+| WPS、实际投影 | 未测 |
+
 ## 依赖
 
 | 类别 | 依赖 |
@@ -202,6 +255,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-ski
 | 工作流 / 技术写作 | 无硬依赖 |
 | personal-ui-taste | 四个外部设计 skill；默认安装，按任务读取，缺失时说明降级 |
 | research skill | PyTorch与实验执行方法；kernel-knowledge按需自行安装/阅读，Atrex等引擎仅在目标环境已就绪时使用 |
+| nju-ppt（仅ppt组） | 外部 `hugohe3/ppt-master` 精确skill＋Python 3.10+独立venv；[核心依赖](skills/ppt/nju-ppt/requirements-core.txt)，不复制引擎 |
 
 - `.sdoc` 校验需要 `strictdoc`：脚本末尾检查 `uv`，缺则安装；可选全局安装 `uv tool install strictdoc==0.28.1`，升级用 `uv tool upgrade strictdoc`
 - 项目接入记忆系统：使用 [AGENTS.tail.md](AGENTS.tail.md) 中 `memory-system:start/end` 引导块
@@ -212,7 +266,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-ski
 |---|---|---|
 | [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) | `ui-ux-pro-max` | 页面结构、产品模式、UX、图表、动效与风格检索 |
 | [alchaincyf/huashu-design](https://github.com/alchaincyf/huashu-design) | `huashu-design` | 高保真、构图/叙事、动画与视觉 QA |
-| [Leonxlnx/taste-skill](https://github.com/Leonxlnx/taste-skill) | `design-taste-frontend`、`redesign-existing-projects` | 新页面视觉方法、已有页面改造审查 |
+| [Leonxlnx/taste-skill](https://github.com/Leonxlnx/taste-skill) | `design-taste-frontend` | 新页面视觉方法、已有页面改造审查；旧 `redesign-existing-projects` 已由上游移除，不再代装或代更新，已有副本保留 |
 
 - **分发**：三个 setup → [skills-sync.sh](skills-sync.sh) → [skills-external.sh](skills-external.sh)。精确名字补缺，再由 `npx skills@latest update -g <第三方名字>` 更新；不使用整库 `--all`，不把本仓条目交给 npx。
 - **归属**：本仓维护工作流、个人偏好与验证过的适配经验；外部维护完整目录、配方、脚本与资源。新增能力先考虑引用依赖，重复验证后再提炼差异，不逐版拷贝上游。
@@ -612,7 +666,7 @@ bash /tmp/opencode-setup.sh --plugins-only
 
 | 模式 | 处理范围 |
 | --- | --- |
-| 默认完整安装 | 插件、配置、依赖与通用 skills；默认 base 17 个，交互可选 research、accel、kb，全部选中时为 33 个，另同步外部设计 skills |
+| 默认完整安装 | 插件、配置、依赖与通用 skills；默认 base 17 个，交互可选 research、accel、kb、ppt，全部选中时为 34 个，另同步外部设计 skills；选ppt另补引擎与Python核心依赖 |
 | `--plugins-only` | 自维护插件、context-mode 及其 skills、官方包登记、claude-mem runtime／入口／MCP；不更新模型／Python／通用 skills，不安装 notify |
 | `--check` | 下载校验自维护包，检查配置，查询 Ponytail／Magic Context 本地与 npm 版本；不询问、不改配置、认证或数据库 |
 
@@ -914,7 +968,7 @@ npm 缺失包在 OpenCode 启动时自动安装；已有包不会因重启自动
 
 ### Skills
 
-本仓库 skill 由三个 setup 脚本统一调用的 `skills-sync.sh`（仓库根）分组同步，**重跑完整 setup 刷新所选组**；OpenCode 的 `--plugins-only` 不更新通用 skills。始终从 GitHub 拉取 `main` tarball 安装；分组即仓库 `skills/{base,research,accel,kb}/` 目录，新增 skill 放入对应组目录即可，无名单维护：
+本仓库 skill 由三个 setup 脚本统一调用的 `skills-sync.sh`（仓库根）分组同步，**重跑完整 setup 刷新所选组**；OpenCode 的 `--plugins-only` 不更新通用 skills。始终从 GitHub 拉取 `main` tarball 安装；分组即仓库 `skills/{base,research,accel,kb,ppt}/` 目录，新增 skill 放入对应组目录即可，无名单维护：
 
 | 组 | 策略 |
 |---|---|
@@ -922,13 +976,15 @@ npm 缺失包在 OpenCode 启动时自动安装；已有包不会因重启自动
 | research（算法研究，7） | 每次随仓库刷新；本地有未回流改动先按组备份再覆盖 |
 | accel（算力平台模板，7） | 缺才装；本机特化后永不覆盖 |
 | kb（公共知识，2） | 每次随仓库刷新，不备份 |
+| ppt（南京大学PPT，1） | 默认不选；选中后刷新并先备份漂移，再补齐引擎和独立Python环境 |
 
 客户端不分组：实体直落 `~/.agents/skills/<名>`，装了 Claude Code 的机器同步 `~/.claude/skills/<名>`（有差异才写）。选组只决定本次安装／更新；不选不会卸载已安装的 skill。
 
-第三方由共用同步器末尾的 `skills-external.sh` 处理：默认补装四个设计依赖，再按锁表更新已登记第三方（包括用户另装的 drawio/find-skills 等）。同时排除本仓来源与当前 `skills/{base,research,accel,kb}` 下的名字，避免旧锁表把本仓 skill 误认成第三方。
+第三方由共用同步器末尾的 `skills-external.sh` 处理：默认补装三个设计依赖，选中ppt时另补装 `hugohe3/ppt-master` 的 `ppt-master`，再按锁表更新已登记第三方（包括用户另装的 drawio/find-skills 等）。同时排除本仓来源、已由上游移除的 `redesign-existing-projects` 与当前 `skills/{base,research,accel,kb,ppt}` 下的名字，避免旧锁表把本仓 skill 误认成第三方。
 
 ```bash
 bash skills-external.sh   # 在克隆的套件根单独补装/更新第三方，不动本仓 skill 或插件配置
+bash skills-external.sh --ppt  # 另补缺ppt-master；不代替ppt组和独立Python环境准备
 ```
 
 `npx skills update` 本身只更新已登记项，不补装缺项或上游新增 skill；依赖补装仍需精确的 `add --skill`。

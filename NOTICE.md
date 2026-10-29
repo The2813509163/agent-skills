@@ -42,4 +42,12 @@ The fork renames the eleven upstream tools to `ctxm_*`; the upstream names would
 collide with `pi-magic-context`'s `ctx_search`, which makes Pi exit on startup.
 Reproduce or update the artifacts with `bash context-mode/setup.sh --publish`.
 
+`skills/ppt/nju-ppt/assets/` includes user-supplied Nanjing University template
+artwork and derived slide layouts. The contributor confirmed permission for public
+distribution on 2026-10-29, including feature-branch installation testing.
+The repository MIT license does not grant rights to that artwork or its marks.
+See `skills/ppt/nju-ppt/ASSETS-NOTICE.md`. This is not a university-endorsed product.
+The external `hugohe3/ppt-master` engine is installed separately, not vendored here;
+its license and attribution requirements remain applicable.
+
 All other files are original works of brilliantrough.

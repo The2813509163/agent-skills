@@ -19,8 +19,10 @@ bash /tmp/opencode-setup.sh --plugins-only
 | `--plugins-only` | 自维护包、context-mode 及其 skills、官方包登记、claude-mem runtime／入口／MCP、旧入口迁移 | 模型模板、Python 环境、通用 skills、notify 安装、按键统一 |
 | `--check` | 下载校验自维护发布包，检查配置与 Magic Context，查询 Ponytail／Magic Context 版本，列出管理路径和待退役项 | 部署、更改配置／认证／数据库；也不试运行插件或检查全部依赖 |
 
-- 完整安装默认同步 base 16 个 skills；交互可分别选择 research、accel、kb，全部选中时为 31 个，另同步四个外部设计 skills。实体位于 `~/.agents/skills/`；context-mode 自带 skills 位于 `$CFG/skill/`。
-- `-y`／`--yes` 取各项默认值，**不是全部同意**；research、accel、kb 组与 notify 首装默认跳过。查看输出中的 WARN，缺包或网络失败后重跑。
+- 完整安装默认同步 base 17 个 skills；交互可分别选择 research、accel、kb、ppt，全部选中时为 34 个，另同步四个外部设计 skills。选ppt另补外部 `ppt-master` 和独立Python核心依赖；模板授权与平台验证见[主README](../README.md#南京大学演示文稿ppt-组可选)。实体位于 `~/.agents/skills/`；context-mode 自带 skills 位于 `$CFG/skill/`。
+- `-y`／`--yes` 取各项默认值，**不是全部同意**；research、accel、kb、ppt 组与 notify 首装默认跳过。查看输出中的 WARN，缺包或网络失败后重跑。
+
+选装或更新南大PPT：运行上面的安装入口时不带 `-y`，在PPT组选项输入 `y`；输入N仅跳过本次安装／更新，不卸载原有skill。main合并前请使用主README中的功能分支试装命令；当前GitHub main入口还没有新选项。
 - 两个精简模式要求已有 Python 3、curl；`--check` 仍联网，宿主 `--version` 可能写自己的日志，不是零文件系统写入。
 - `$CFG`：`OPENCODE_CONFIG_DIR` 优先，否则 `$XDG_CONFIG_HOME/opencode` 或 `~/.config/opencode`。Windows 用 Git Bash；本轮 v1/v2 迁移尚未做 Windows 实机验收。
 

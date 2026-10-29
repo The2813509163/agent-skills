@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
-# 三套 setup 经 skills-sync.sh 调用；也可单跑，只补装设计依赖并更新已登记第三方。
+# 三套 setup 经 skills-sync.sh 调用；默认补装设计依赖，--ppt 另补装 ppt-master，再更新已登记第三方。
 # 第三方副本由上游管理；个人改动放回本仓 skill。同名本地/其他源保留并告警。
 set -euo pipefail
+with_ppt=0
+case "${1:-}" in
+  "") ;;
+  --ppt) with_ppt=1 ;;
+  *) echo "用法: $0 [--ppt]" >&2; exit 2 ;;
+esac
+[ "$#" -le 1 ] || { echo "用法: $0 [--ppt]" >&2; exit 2; }
 command -v npx >/dev/null 2>&1 && command -v node >/dev/null 2>&1 || {
   echo "WARN: 缺少 Node/npx，外部 skill 未安装/更新" >&2; exit 1;
 }
@@ -49,7 +56,8 @@ JS
 ensure_skill nextlevelbuilder/ui-ux-pro-max-skill ui-ux-pro-max
 ensure_skill alchaincyf/huashu-design huashu-design
 ensure_skill Leonxlnx/taste-skill design-taste-frontend
-ensure_skill Leonxlnx/taste-skill redesign-existing-projects
+# 上游已移除 redesign-existing-projects；保留已有副本，不再代装或代更新。
+[ "$with_ppt" = 0 ] || ensure_skill hugohe3/ppt-master ppt-master
 
 third=$(node - "$ROOT" <<'JS'
 const fs = require('node:fs');
@@ -58,18 +66,19 @@ const lockPath = path.join(require('node:os').homedir(), '.agents', '.skill-lock
 const skills = fs.existsSync(lockPath) ? JSON.parse(fs.readFileSync(lockPath, 'utf8')).skills : {};
 const mine = 'brilliantrough/agent-skills';
 const own = new Set();
-for (const group of ['base', 'research', 'accel', 'kb']) {
+for (const group of ['base', 'research', 'accel', 'kb', 'ppt']) {
   const dir = path.join(process.argv[2], 'skills', group);
+  if (!fs.existsSync(dir)) continue;
   for (const name of fs.readdirSync(dir)) if (fs.existsSync(path.join(dir, name, 'SKILL.md'))) own.add(name);
 }
 const expected = {
   'ui-ux-pro-max': 'nextlevelbuilder/ui-ux-pro-max-skill',
   'huashu-design': 'alchaincyf/huashu-design',
   'design-taste-frontend': 'Leonxlnx/taste-skill',
-  'redesign-existing-projects': 'Leonxlnx/taste-skill'
+  'ppt-master': 'hugohe3/ppt-master'
 };
 console.log(Object.entries(skills).filter(([name, e]) =>
-  !own.has(name) && !(e.source || '').includes(mine) && !(e.sourceUrl || '').includes(mine) &&
+  name !== 'redesign-existing-projects' && !own.has(name) && !(e.source || '').includes(mine) && !(e.sourceUrl || '').includes(mine) &&
   (!expected[name] || e.source === expected[name])
 ).map(([name]) => name).join(' '));
 JS
