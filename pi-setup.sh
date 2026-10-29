@@ -357,7 +357,7 @@ PYEOF
 }
 
 RAW="https://raw.githubusercontent.com/brilliantrough/dot_file/master"
-SELF_RAW="https://raw.githubusercontent.com/brilliantrough/agent-skills/${AGENT_SKILLS_REF:-main}"
+SELF_RAW="https://raw.githubusercontent.com/${AGENT_SKILLS_REPO:-brilliantrough/agent-skills}/${AGENT_SKILLS_REF:-main}"
 # merge_cfg <url> <dest> [mcp] — 拉 dot_file 模板后做「字段级」合并,而非整文件覆盖:
 #   模板中的非敏感字段值优先 → 新默认值能下发到服务器;
 #   隐私内容永不覆盖:敏感键(api key / secret / token / password / credential / bearer / auth /

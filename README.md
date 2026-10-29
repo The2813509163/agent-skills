@@ -215,7 +215,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/brilliantrough/agent-ski
 bash skills-sync.sh ppt
 ```
 
-- 同步器默认下载GitHub main，不读取本地工作树；分支验收可设 `AGENT_SKILLS_REF`，入口URL也须指向同一分支
+- 同步器默认下载GitHub main，不读取本地工作树；分支验收可设 `AGENT_SKILLS_REF`，入口URL也须指向同一分支；Fork 验收另设 `AGENT_SKILLS_REPO=用户/agent-skills`
 - 选中PPT即允许准备其外部skill与核心Python包；需要Python 3.10+，可用 `NJU_PPT_PYTHON` 指定单个解释器路径
 - 独立环境位于 `~/.local/share/agent-skills/nju-ppt/venv`；不改系统Python，不安装Office／字体／系统代理
 - 模板随 `nju-ppt` 打包，用完整外部root安装到本次项目，不修改 `ppt-master` 全局索引
@@ -230,6 +230,12 @@ AGENT_SKILLS_REF=feat/nju-ppt-optional bash -c "$(curl -fsSL --connect-timeout 8
 ```
 
 测试完整setup时，同样在命令前设置 `AGENT_SKILLS_REF=feat/nju-ppt-optional` 并将入口URL的 `main` 换成该分支；不带 `-y`，PPT组选Y。公开分支不限制学生身份，素材说明不代表校方背书。
+
+从 Fork 试装时，把入口 URL 和 `AGENT_SKILLS_REPO` 都指向 Fork；同步器据此从同一 Fork 下载完整包：
+
+```bash
+AGENT_SKILLS_REPO=The2813509163/agent-skills AGENT_SKILLS_REF=feat/nju-ppt-optional bash -c "$(curl -fsSL https://raw.githubusercontent.com/The2813509163/agent-skills/feat/nju-ppt-optional/skills-sync.sh)" -- ppt
+```
 
 使用示例：
 

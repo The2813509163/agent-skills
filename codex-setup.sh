@@ -617,7 +617,7 @@ else
 fi
 
 # ---- 5. skills:共用同步器刷新 base/research(漂移先备份)、补装外部设计依赖并更新第三方 ----
-SELF_RAW="https://raw.githubusercontent.com/brilliantrough/agent-skills/${AGENT_SKILLS_REF:-main}"
+SELF_RAW="https://raw.githubusercontent.com/${AGENT_SKILLS_REPO:-brilliantrough/agent-skills}/${AGENT_SKILLS_REF:-main}"
 _ss="$(mktemp --suffix=.sh 2>/dev/null || mktemp)"
 if curl -fsSL --connect-timeout 8 -m 60 -o "$_ss" "$SELF_RAW/skills-sync.sh"; then
   SKILL_GROUPS=(base)

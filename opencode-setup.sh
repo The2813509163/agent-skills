@@ -126,7 +126,7 @@ if [ "$PLUGINS_ONLY" = 0 ] && ask "更新 OpenCode 到最新版(opencode upgrade
 fi
 RAW="https://raw.githubusercontent.com/brilliantrough/dot_file/master"
 # 本仓原始文件入口：skills 同步器、项目规范块等；插件产物从固定 release 获取。
-SELF_RAW="https://raw.githubusercontent.com/brilliantrough/agent-skills/${AGENT_SKILLS_REF:-main}"
+SELF_RAW="https://raw.githubusercontent.com/${AGENT_SKILLS_REPO:-brilliantrough/agent-skills}/${AGENT_SKILLS_REF:-main}"
 # merge_cfg <url> <dest> — 拉 dot_file 模板后做「字段级」合并,而非整文件覆盖:
 #   模板中的非敏感字段值优先 → 新默认值能下发到服务器;
 #   隐私内容永不覆盖:敏感键(api key / secret / token / password / credential / bearer / auth /

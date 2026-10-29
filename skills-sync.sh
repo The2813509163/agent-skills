@@ -8,7 +8,7 @@
 #
 # 用法:skills-sync.sh [all|base|research|accel|kb|ppt ...]
 #       无参数/all = 全部组;可传多个组(例如 base research);setup 默认至少传 base。
-# 源:从 GitHub 拉取 tarball 到 ~/.cache/agent-skills-src；默认main，分支验收可设AGENT_SKILLS_REF。
+# 源:从 GitHub 拉取 tarball 到 ~/.cache/agent-skills-src；默认main，分支验收可设AGENT_SKILLS_REF，Fork 验收可设AGENT_SKILLS_REPO。
 set -euo pipefail
 
 SCOPE_ARGS=("$@")
@@ -31,11 +31,12 @@ else
 fi
 
 ref="${AGENT_SKILLS_REF:-main}"
+repo="${AGENT_SKILLS_REPO:-brilliantrough/agent-skills}"
 cache="$HOME/.cache/agent-skills-src"
 mkdir -p "$cache"
 echo "拉取 GitHub $ref tarball -> $cache"
 curl -fsSL --connect-timeout 10 -m 120 -o "$cache/src.tgz" \
-  "https://codeload.github.com/brilliantrough/agent-skills/tar.gz/refs/heads/$ref"
+  "https://codeload.github.com/$repo/tar.gz/refs/heads/$ref"
 source_root="$cache/agent-skills-source"
 rm -rf "$source_root"; mkdir -p "$source_root"
 tar -xzf "$cache/src.tgz" --strip-components=1 -C "$source_root"; rm -f "$cache/src.tgz"

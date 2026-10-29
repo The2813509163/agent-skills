@@ -188,6 +188,7 @@ exit "${PREPARE_EXIT:-0}"
             assert re.search(r'ask "[^"\n]*ppt 组[^"\n]*" N && SKILL_GROUPS\+=\(ppt\)', text), name
             assert "SKILL_GROUPS=(base)" in text
             assert '${AGENT_SKILLS_REF:-main}' in text, name
+            assert '${AGENT_SKILLS_REPO:-brilliantrough/agent-skills}' in text, name
         print("PASS three setup entry points: PPT defaults to N; base remains default")
         external_checks(tmp, env)
         print("NOTE: non-PPT payload, download, external stage and Python invocation were fixtures; not a real GitHub install")
